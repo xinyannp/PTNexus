@@ -956,6 +956,22 @@ interface SeedParameter {
   is_reviewed: boolean // 新增：是否已检查
 }
 
+const isAnimationRelatedType = (typeValue: string | undefined | null) => {
+  const text = (typeValue || '').trim().toLowerCase()
+  if (!text) return false
+
+  if (text === 'category.animation') {
+    return true
+  }
+
+  return (
+    text.includes('animation') ||
+    text.includes('anime') ||
+    text.includes('动漫') ||
+    text.includes('动画')
+  )
+}
+
 interface PathNode {
   path: string
   label: string
@@ -1449,7 +1465,26 @@ const fetchData = async () => {
 
       // 更新目标站点列表
       if (result.target_sites) {
-        targetSitesList.value = result.target_sites
+        const filteredTargetSites = (result.target_sites || []).filter((site: string) => {
+          const normalized = String(site || '')
+            .trim()
+            .toLowerCase()
+
+          if (normalized !== 'ilolicon') {
+            return true
+          }
+
+          return result.data.some((row: SeedParameter) => isAnimationRelatedType(row.type))
+        })
+
+        targetSitesList.value = filteredTargetSites
+
+        if (
+          activeFilters.value.excludeTargetSites &&
+          !filteredTargetSites.includes(activeFilters.value.excludeTargetSites)
+        ) {
+          activeFilters.value.excludeTargetSites = ''
+        }
       }
     } else {
       error.value = result.error || '获取数据失败'

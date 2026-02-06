@@ -2325,3 +2325,4 @@ def stop_data_tracker():
             print("DataTracker 线程已优雅停止。")
         logging.info("DataTracker 线程已停止。")
     data_tracker_thread = None
+

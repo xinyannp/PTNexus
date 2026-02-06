@@ -835,6 +835,15 @@
                 <InfoFilled />
               </el-icon>
             </el-tooltip>
+            <el-tooltip
+              v-else-if="isIloliconSite(site) && !isCurrentSeedAnimationRelated"
+              content="ilolicon 仅支持动漫/动画内容，当前种子已自动禁用"
+              placement="top"
+            >
+              <el-icon style="margin-left: 4px; color: #f56c6c">
+                <InfoFilled />
+              </el-icon>
+            </el-tooltip>
           </el-button>
         </div>
       </div>
@@ -885,21 +894,25 @@
               <div
                 v-for="result in row"
                 :key="result.siteName"
-                  class="result-card"
-                  :class="{
-                    'is-success': result.displayStatus === 'success',
-                    'is-warning': result.displayStatus === 'warning',
-                    'is-error': result.displayStatus === 'error',
-                    'is-waiting': result.displayStatus === 'waiting',
-                    'is-publishing': result.displayStatus === 'publishing',
-                    'is-paused': result.displayStatus === 'paused',
-                  }"
-                >
+                class="result-card"
+                :class="{
+                  'is-success': result.displayStatus === 'success',
+                  'is-warning': result.displayStatus === 'warning',
+                  'is-error': result.displayStatus === 'error',
+                  'is-waiting': result.displayStatus === 'waiting',
+                  'is-publishing': result.displayStatus === 'publishing',
+                  'is-paused': result.displayStatus === 'paused',
+                }"
+              >
                 <div class="card-icon">
                   <el-icon v-if="result.displayStatus === 'success'" color="#67C23A" :size="32">
                     <CircleCheckFilled />
                   </el-icon>
-                  <el-icon v-else-if="result.displayStatus === 'warning'" color="#E6A23C" :size="32">
+                  <el-icon
+                    v-else-if="result.displayStatus === 'warning'"
+                    color="#E6A23C"
+                    :size="32"
+                  >
                     <Warning />
                   </el-icon>
                   <el-icon v-else-if="result.displayStatus === 'error'" color="#F56C6C" :size="32">
@@ -1634,6 +1647,38 @@ const filteredDeclarationsList = computed(() => {
 })
 const filteredDeclarationsCount = computed(() => filteredDeclarationsList.value.length)
 
+const isAnimationRelatedType = (typeValue: string | undefined | null) => {
+  const text = (typeValue || '').trim().toLowerCase()
+  if (!text) return false
+
+  if (text === 'category.animation') {
+    return true
+  }
+
+  return (
+    text.includes('animation') ||
+    text.includes('anime') ||
+    text.includes('动漫') ||
+    text.includes('动画')
+  )
+}
+
+const isCurrentSeedAnimationRelated = computed(() =>
+  isAnimationRelatedType(torrentData.value.standardized_params.type),
+)
+
+const isIloliconSite = (siteStatus: SiteStatus | undefined) => {
+  if (!siteStatus) return false
+  return (
+    String(siteStatus.site || '')
+      .trim()
+      .toLowerCase() === 'ilolicon' ||
+    String(siteStatus.name || '')
+      .trim()
+      .toLowerCase() === 'ilolicon'
+  )
+}
+
 const isTargetSiteSelectable = (siteName: string): boolean => {
   // 步骤 1: 查找站点的状态信息
   const siteStatus = allSitesStatus.value.find((s) => s.name === siteName)
@@ -1661,7 +1706,12 @@ const isTargetSiteSelectable = (siteName: string): boolean => {
     return false
   }
 
-  // 条件 3: 检查是否为ubits站点并应用特殊禁转规则
+  // 条件 3: ilolicon 仅支持动漫/动画相关内容
+  if (isIloliconSite(siteStatus) && !isCurrentSeedAnimationRelated.value) {
+    return false
+  }
+
+  // 条件 4: 检查是否为ubits站点并应用特殊禁转规则
   if (siteName.toLowerCase() === 'ubits') {
     const team = torrentData.value.standardized_params.team
     const titleComponents = torrentData.value.title_components
@@ -3510,6 +3560,17 @@ const selectAllTargetSites = () => {
 const clearAllTargetSites = () => {
   selectedTargetSites.value = []
 }
+
+watch(isCurrentSeedAnimationRelated, (isAnimationRelated) => {
+  if (isAnimationRelated) {
+    return
+  }
+
+  selectedTargetSites.value = selectedTargetSites.value.filter((siteName) => {
+    const siteStatus = allSitesStatus.value.find((s) => s.name === siteName)
+    return !isIloliconSite(siteStatus)
+  })
+})
 
 const normalizePublishResult = (siteName: string, raw: any) => {
   const result: any = {

@@ -300,6 +300,17 @@ class RousiUploader(SpecialUploader):
 
         return [t for t in dedup if t in supported]
 
+    def _default_genre_when_unmatched(self, category_key: str) -> List[str]:
+        """
+        当 tags 无法匹配到有效类型时，默认回退到“其他/其它”。
+        """
+        supported = self._genre_options_by_type.get(category_key) or set()
+        if "其他" in supported:
+            return ["其他"]
+        if "其它" in supported:
+            return ["其它"]
+        return ["其他"]
+
     @staticmethod
     def _sanitize_markdown_no_images(text: str) -> str:
         if not text:
@@ -994,17 +1005,17 @@ class RousiUploader(SpecialUploader):
         if isinstance(payload.get("attributes"), dict):
             attributes_data.update(payload["attributes"])
 
-        tags_value = self.upload_data.get("tags")
-        if tags_value is None:
-            tags_value = standardized_params.get("tags")
-
         category_key = self._normalize_category_key_for_genre(normalized_category)
-        if tags_value is not None and category_key and category_key in self._genre_options_by_type:
+        if category_key and category_key in self._genre_options_by_type:
+            tags_value = self.upload_data.get("tags")
+            if tags_value is None:
+                tags_value = standardized_params.get("tags")
+
             derived_genres = self._derive_genre_from_tags(category_key, tags_value)
             if derived_genres:
                 attributes_data["genre"] = derived_genres
             else:
-                attributes_data.pop("genre", None)
+                attributes_data["genre"] = self._default_genre_when_unmatched(category_key)
 
         # region/resolution/source（兼容 a.json 顶层写法，但最终只写入 attributes）
         for key in ("region", "resolution", "source"):

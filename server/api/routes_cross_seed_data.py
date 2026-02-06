@@ -8,7 +8,7 @@ import json
 from datetime import datetime, timedelta
 
 # 创建蓝图
-cross_seed_data_bp = Blueprint('cross_seed_data', __name__, url_prefix="/api")
+cross_seed_data_bp = Blueprint("cross_seed_data", __name__, url_prefix="/api")
 
 INACTIVE_TORRENT_STATES = ("未做种", "已暂停", "已停止", "错误", "等待", "队列")
 
@@ -53,88 +53,81 @@ def generate_reverse_mappings():
 
         if os.path.exists(GLOBAL_MAPPINGS):
             try:
-                with open(GLOBAL_MAPPINGS, 'r', encoding='utf-8') as f:
+                with open(GLOBAL_MAPPINGS, "r", encoding="utf-8") as f:
                     config_data = yaml.safe_load(f)
-                    global_mappings = config_data.get('global_standard_keys',
-                                                      {})
+                    global_mappings = config_data.get("global_standard_keys", {})
             except Exception as e:
                 logging.warning(f"Failed to read global_mappings.yaml: {e}")
 
         # If YAML file read fails, get from config manager
         if not global_mappings:
             config = config_manager.get()
-            global_mappings = config.get('global_standard_keys', {})
+            global_mappings = config.get("global_standard_keys", {})
 
         reverse_mappings = {
-            'type': {},
-            'medium': {},
-            'video_codec': {},
-            'audio_codec': {},
-            'resolution': {},
-            'source': {},
-            'team': {},
-            'tags': {}
+            "type": {},
+            "medium": {},
+            "video_codec": {},
+            "audio_codec": {},
+            "resolution": {},
+            "source": {},
+            "team": {},
+            "tags": {},
         }
 
         # Mapping categories
         categories_mapping = {
-            'type': global_mappings.get('type', {}),
-            'medium': global_mappings.get('medium', {}),
-            'video_codec': global_mappings.get('video_codec', {}),
-            'audio_codec': global_mappings.get('audio_codec', {}),
-            'resolution': global_mappings.get('resolution', {}),
-            'source': global_mappings.get('source', {}),
-            'team': global_mappings.get('team', {}),
-            'tags': global_mappings.get('tag',
-                                        {})  # Note: YAML uses 'tag' not 'tags'
+            "type": global_mappings.get("type", {}),
+            "medium": global_mappings.get("medium", {}),
+            "video_codec": global_mappings.get("video_codec", {}),
+            "audio_codec": global_mappings.get("audio_codec", {}),
+            "resolution": global_mappings.get("resolution", {}),
+            "source": global_mappings.get("source", {}),
+            "team": global_mappings.get("team", {}),
+            "tags": global_mappings.get("tag", {}),  # Note: YAML uses 'tag' not 'tags'
         }
 
         # Create reverse mappings: from standard value to Chinese name
         for category, mappings in categories_mapping.items():
-            if category == 'tags':
+            if category == "tags":
                 # Special handling for tags, extract Chinese name as key, standard value as value
                 for chinese_name, standard_value in mappings.items():
                     if standard_value:  # Filter out null values
-                        reverse_mappings['tags'][standard_value] = chinese_name
+                        reverse_mappings["tags"][standard_value] = chinese_name
             else:
                 # Normal handling for other categories
                 for chinese_name, standard_value in mappings.items():
-                    if standard_value and standard_value not in reverse_mappings[
-                            category]:
-                        reverse_mappings[category][
-                            standard_value] = chinese_name
+                    if standard_value and standard_value not in reverse_mappings[category]:
+                        reverse_mappings[category][standard_value] = chinese_name
 
         return reverse_mappings
 
     except Exception as e:
-        logging.error(f"Failed to generate reverse mappings: {e}",
-                      exc_info=True)
+        logging.error(f"Failed to generate reverse mappings: {e}", exc_info=True)
         # Return empty reverse mappings as fallback
         return {
-            'type': {},
-            'medium': {},
-            'video_codec': {},
-            'audio_codec': {},
-            'resolution': {},
-            'source': {},
-            'team': {},
-            'tags': {}
+            "type": {},
+            "medium": {},
+            "video_codec": {},
+            "audio_codec": {},
+            "resolution": {},
+            "source": {},
+            "team": {},
+            "tags": {},
         }
 
 
-@cross_seed_data_bp.route('/cross-seed-data/unique-paths', methods=['GET'])
+@cross_seed_data_bp.route("/cross-seed-data/unique-paths", methods=["GET"])
 def get_unique_save_paths():
     """获取seed_parameters表中所有唯一的保存路径"""
     try:
         # 获取数据库管理器
-        db_manager = current_app.config['DB_MANAGER']
+        db_manager = current_app.config["DB_MANAGER"]
         conn = db_manager._get_connection()
         cursor = db_manager._get_cursor(conn)
 
         # 查询所有唯一的保存路径（从torrents取当前路径）
-        current_torrents_subquery = build_current_torrents_subquery(
-            db_manager.db_type
-        )
+        current_torrents_subquery = build_current_torrents_subquery(db_manager.db_type)
         query = f"""
             SELECT DISTINCT ct.save_path
             FROM seed_parameters sp
@@ -149,9 +142,7 @@ def get_unique_save_paths():
         # 将结果转换为列表
         if isinstance(rows, list):
             # PostgreSQL返回的是字典列表
-            unique_paths = [
-                row['save_path'] for row in rows if row['save_path']
-            ]
+            unique_paths = [row["save_path"] for row in rows if row["save_path"]]
         else:
             # MySQL和SQLite返回的是元组列表
             unique_paths = [row[0] for row in rows if row[0]]
@@ -165,21 +156,20 @@ def get_unique_save_paths():
         return jsonify({"success": False, "error": str(e)}), 500
 
 
-@cross_seed_data_bp.route('/cross-seed-data', methods=['GET'])
+@cross_seed_data_bp.route("/cross-seed-data", methods=["GET"])
 def get_cross_seed_data():
     """获取seed_parameters表中的所有数据（支持分页和搜索）"""
     try:
         # 获取分页参数
-        page = int(request.args.get('page', 1))
-        page_size = int(request.args.get('page_size', 20))
-        search_query = request.args.get('search', '').strip()
+        page = int(request.args.get("page", 1))
+        page_size = int(request.args.get("page_size", 20))
+        search_query = request.args.get("search", "").strip()
 
         # 获取筛选参数
-        path_filters_str = request.args.get('path_filters', '').strip()
-        is_deleted_filter = request.args.get('is_deleted', '').strip()
-        exclude_target_sites_filter = request.args.get('exclude_target_sites',
-                                                       '').strip()
-        review_status_filter = request.args.get('review_status', '').strip()
+        path_filters_str = request.args.get("path_filters", "").strip()
+        is_deleted_filter = request.args.get("is_deleted", "").strip()
+        exclude_target_sites_filter = request.args.get("exclude_target_sites", "").strip()
+        review_status_filter = request.args.get("review_status", "").strip()
 
         # 限制页面大小
         page_size = min(page_size, 100)
@@ -188,13 +178,11 @@ def get_cross_seed_data():
         offset = (page - 1) * page_size
 
         # 获取数据库管理器
-        db_manager = current_app.config['DB_MANAGER']
+        db_manager = current_app.config["DB_MANAGER"]
         conn = db_manager._get_connection()
         cursor = db_manager._get_cursor(conn)
 
-        current_torrents_subquery = build_current_torrents_subquery(
-            db_manager.db_type
-        )
+        current_torrents_subquery = build_current_torrents_subquery(db_manager.db_type)
         from_clause = f"""
             FROM seed_parameters sp
             LEFT JOIN ({current_torrents_subquery}) ct ON sp.hash = ct.hash
@@ -212,93 +200,93 @@ def get_cross_seed_data():
                 where_conditions.append(
                     "(sp.title ILIKE %s OR sp.torrent_id ILIKE %s OR sp.subtitle ILIKE %s)"
                 )
-                params.extend([
-                    f"%{search_query}%", f"%{search_query}%",
-                    f"%{search_query}%"
-                ])
+                params.extend([f"%{search_query}%", f"%{search_query}%", f"%{search_query}%"])
             elif db_manager.db_type == "mysql":
                 where_conditions.append(
                     "(sp.title LIKE %s OR sp.torrent_id LIKE %s OR sp.subtitle LIKE %s)"
                 )
-                params.extend([
-                    f"%{search_query}%", f"%{search_query}%",
-                    f"%{search_query}%"
-                ])
+                params.extend([f"%{search_query}%", f"%{search_query}%", f"%{search_query}%"])
             else:  # sqlite
                 where_conditions.append(
-                    "(sp.title LIKE ? OR sp.torrent_id LIKE ? OR sp.subtitle LIKE ?)")
-                params.extend([
-                    f"%{search_query}%", f"%{search_query}%",
-                    f"%{search_query}%"
-                ])
+                    "(sp.title LIKE ? OR sp.torrent_id LIKE ? OR sp.subtitle LIKE ?)"
+                )
+                params.extend([f"%{search_query}%", f"%{search_query}%", f"%{search_query}%"])
 
         # 保存路径筛选条件 - 支持多个路径筛选（精确匹配）
         if path_filters_str:
             try:
                 # 解析JSON数组
                 import json as json_module
+
                 paths = json_module.loads(path_filters_str)
                 if isinstance(paths, list) and paths:
                     if db_manager.db_type == "postgresql":
                         # PostgreSQL 使用 ANY 操作符进行精确匹配
-                        placeholders = ', '.join(['%s'] * len(paths))
-                        where_conditions.append(
-                            f"ct.save_path = ANY(ARRAY[{placeholders}])")
+                        placeholders = ", ".join(["%s"] * len(paths))
+                        where_conditions.append(f"ct.save_path = ANY(ARRAY[{placeholders}])")
                         params.extend(paths)
                     else:
                         # MySQL 和 SQLite 使用 IN 操作符进行精确匹配
-                        placeholders = ', '.join(
-                            ['%s' if db_manager.db_type == "mysql" else '?'] *
-                            len(paths))
+                        placeholders = ", ".join(
+                            ["%s" if db_manager.db_type == "mysql" else "?"] * len(paths)
+                        )
                         where_conditions.append(f"ct.save_path IN ({placeholders})")
                         params.extend(paths)
             except (json_module.JSONDecodeError, ValueError) as e:
                 logging.warning(f"解析路径筛选参数失败: {e}")
 
         # 删除状态筛选条件
-        if is_deleted_filter in ['0', '1']:
-            if is_deleted_filter == '1':
+        if is_deleted_filter in ["0", "1"]:
+            if is_deleted_filter == "1":
                 where_conditions.append(is_deleted_condition)
             else:
                 where_conditions.append(is_not_deleted_condition)
 
         # 检查状态筛选条件
         if review_status_filter:
-            if review_status_filter == 'reviewed':
+            if review_status_filter == "reviewed":
                 # 已检查：is_reviewed = true（且不是已删除或禁转/限转/分集或无法识别）
                 if db_manager.db_type == "postgresql":
                     where_conditions.append(
                         f"sp.is_reviewed = true AND {is_not_deleted_condition} AND (sp.tags IS NULL OR (sp.tags::text NOT LIKE %s AND sp.tags::text NOT LIKE %s AND sp.tags::text NOT LIKE %s)) AND (sp.title_components IS NULL OR sp.title_components::text !~ %s)"
                     )
-                    params.extend(['%禁转%', '%限转%', '%分集%', r'"无法识别"[^}]*"value":\s*".+"'])
+                    params.extend(
+                        ["%禁转%", "%限转%", "%分集%", r'"无法识别"[^}]*"value":\s*".+"']
+                    )
                 elif db_manager.db_type == "mysql":
                     where_conditions.append(
                         f"sp.is_reviewed = 1 AND {is_not_deleted_condition} AND (sp.tags IS NULL OR (sp.tags NOT LIKE %s AND sp.tags NOT LIKE %s AND sp.tags NOT LIKE %s)) AND (sp.title_components IS NULL OR sp.title_components NOT REGEXP %s)"
                     )
-                    params.extend(['%禁转%', '%限转%', '%分集%', r'"无法识别"[^}]*"value":\s*".+"'])
+                    params.extend(
+                        ["%禁转%", "%限转%", "%分集%", r'"无法识别"[^}]*"value":\s*".+"']
+                    )
                 else:  # sqlite
                     where_conditions.append(
                         f"sp.is_reviewed = 1 AND {is_not_deleted_condition} AND (sp.tags IS NULL OR (sp.tags NOT LIKE ? AND sp.tags NOT LIKE ? AND sp.tags NOT LIKE ?)) AND (sp.title_components IS NULL OR NOT (sp.title_components LIKE ? AND sp.title_components NOT LIKE ?))"
                     )
-                    params.extend(['%禁转%', '%限转%', '%分集%', '%"无法识别"%', '%"value": ""%'])
-            elif review_status_filter == 'unreviewed':
+                    params.extend(["%禁转%", "%限转%", "%分集%", '%"无法识别"%', '%"value": ""%'])
+            elif review_status_filter == "unreviewed":
                 # 待检查：is_reviewed = false 且不是已删除，且不包含禁转/限转/分集标签，且无法识别字段为空
                 if db_manager.db_type == "postgresql":
                     where_conditions.append(
                         f"sp.is_reviewed = false AND {is_not_deleted_condition} AND (sp.tags IS NULL OR (sp.tags::text NOT LIKE %s AND sp.tags::text NOT LIKE %s AND sp.tags::text NOT LIKE %s)) AND (sp.title_components IS NULL OR sp.title_components::text !~ %s)"
                     )
-                    params.extend(['%禁转%', '%限转%', '%分集%', r'"无法识别"[^}]*"value":\s*".+"'])
+                    params.extend(
+                        ["%禁转%", "%限转%", "%分集%", r'"无法识别"[^}]*"value":\s*".+"']
+                    )
                 elif db_manager.db_type == "mysql":
                     where_conditions.append(
                         f"sp.is_reviewed = 0 AND {is_not_deleted_condition} AND (sp.tags IS NULL OR (sp.tags NOT LIKE %s AND sp.tags NOT LIKE %s AND sp.tags NOT LIKE %s)) AND (sp.title_components IS NULL OR sp.title_components NOT REGEXP %s)"
                     )
-                    params.extend(['%禁转%', '%限转%', '%分集%', r'"无法识别"[^}]*"value":\s*".+"'])
+                    params.extend(
+                        ["%禁转%", "%限转%", "%分集%", r'"无法识别"[^}]*"value":\s*".+"']
+                    )
                 else:  # sqlite
                     where_conditions.append(
                         f"sp.is_reviewed = 0 AND {is_not_deleted_condition} AND (sp.tags IS NULL OR (sp.tags NOT LIKE ? AND sp.tags NOT LIKE ? AND sp.tags NOT LIKE ?)) AND (sp.title_components IS NULL OR NOT (sp.title_components LIKE ? AND sp.title_components NOT LIKE ?))"
                     )
-                    params.extend(['%禁转%', '%限转%', '%分集%', '%"无法识别"%', '%"value": ""%'])
-            elif review_status_filter == 'error':
+                    params.extend(["%禁转%", "%限转%", "%分集%", '%"无法识别"%', '%"value": ""%'])
+            elif review_status_filter == "error":
                 # 错误：包含以下任一条件的记录
                 # 1. is_deleted = true（已删除）
                 # 2. tags中包含"禁转/限转/分集"
@@ -310,21 +298,27 @@ def get_cross_seed_data():
                     error_condition = f"({is_deleted_condition} OR sp.tags::text LIKE %s OR sp.tags::text LIKE %s OR sp.tags::text LIKE %s OR sp.title_components::text ~ %s)"
                     where_conditions.append(error_condition)
                     # 正则模式：匹配 "无法识别" 后面跟着非空的 value
-                    params.extend(['%禁转%', '%限转%', '%分集%', r'"无法识别"[^}]*"value":\s*".+"'])
+                    params.extend(
+                        ["%禁转%", "%限转%", "%分集%", r'"无法识别"[^}]*"value":\s*".+"']
+                    )
                 else:
                     # MySQL和SQLite使用REGEXP（MySQL 8.0+支持）
-                    placeholder = '?' if db_manager.db_type == 'sqlite' else '%s'
-                    if db_manager.db_type == 'mysql':
+                    placeholder = "?" if db_manager.db_type == "sqlite" else "%s"
+                    if db_manager.db_type == "mysql":
                         # MySQL使用REGEXP
                         error_condition = f"({is_deleted_condition} OR sp.tags LIKE {placeholder} OR sp.tags LIKE {placeholder} OR sp.tags LIKE {placeholder} OR sp.title_components REGEXP {placeholder})"
                         where_conditions.append(error_condition)
-                        params.extend(['%禁转%', '%限转%', '%分集%', r'"无法识别"[^}]*"value":\s*".+"'])
+                        params.extend(
+                            ["%禁转%", "%限转%", "%分集%", r'"无法识别"[^}]*"value":\s*".+"']
+                        )
                     else:
                         # SQLite可能不支持REGEXP，使用LIKE作为后备
                         # 这不完美，但至少能过滤掉value为空字符串的情况
                         error_condition = f"({is_deleted_condition} OR sp.tags LIKE {placeholder} OR sp.tags LIKE {placeholder} OR sp.tags LIKE {placeholder} OR (sp.title_components LIKE {placeholder} AND sp.title_components NOT LIKE {placeholder}))"
                         where_conditions.append(error_condition)
-                        params.extend(['%禁转%', '%限转%', '%分集%', '%"无法识别"%', '%"value": ""%'])
+                        params.extend(
+                            ["%禁转%", "%限转%", "%分集%", '%"无法识别"%', '%"value": ""%']
+                        )
 
         # 目标站点排除筛选条件
         if exclude_target_sites_filter:
@@ -348,15 +342,15 @@ def get_cross_seed_data():
                             )
                         )
                     """
-                    where_conditions.append(
-                        f"sp.hash NOT IN ({subquery})")
+                    where_conditions.append(f"sp.hash NOT IN ({subquery})")
                     params.append(exclude_site)
                 else:
                     # MySQL 和 SQLite - 直接在WHERE子句中嵌入子查询
-                    placeholder = '%s' if db_manager.db_type == "mysql" else '?'
+                    placeholder = "%s" if db_manager.db_type == "mysql" else "?"
                     # 为MySQL添加COLLATE子句以解决字符集冲突
                     if db_manager.db_type == "mysql":
-                        where_conditions.append(f"""
+                        where_conditions.append(
+                            f"""
                             sp.hash NOT IN (
                                 SELECT DISTINCT sp.hash
                                 FROM seed_parameters sp
@@ -370,9 +364,11 @@ def get_cross_seed_data():
                                     )
                                 )
                             )
-                        """)
+                        """
+                        )
                     else:
-                        where_conditions.append(f"""
+                        where_conditions.append(
+                            f"""
                             sp.hash NOT IN (
                                 SELECT DISTINCT sp.hash
                                 FROM seed_parameters sp
@@ -386,10 +382,25 @@ def get_cross_seed_data():
                                     )
                                 )
                             )
-                        """)
+                        """
+                        )
                     params.append(exclude_site)
 
                 logging.info(f"排除站点参数: {exclude_site}")
+
+                # 当筛选目标站点为 ilolicon 时，只展示动漫/动画相关内容
+                if exclude_site.lower() == "ilolicon":
+                    if db_manager.db_type == "postgresql":
+                        where_conditions.append(
+                            "(sp.type ILIKE %s OR sp.type LIKE %s OR sp.type LIKE %s)"
+                        )
+                        params.extend(["%animation%", "%动漫%", "%动画%"])
+                    else:
+                        placeholder = "%s" if db_manager.db_type == "mysql" else "?"
+                        where_conditions.append(
+                            f"(LOWER(COALESCE(sp.type, '')) LIKE {placeholder} OR sp.type LIKE {placeholder} OR sp.type LIKE {placeholder})"
+                        )
+                        params.extend(["%animation%", "%动漫%", "%动画%"])
 
         # 组合WHERE子句
         where_clause = ""
@@ -408,8 +419,7 @@ def get_cross_seed_data():
         else:
             cursor.execute(count_query, params)
         total_result = cursor.fetchone()
-        total_count = total_result[0] if isinstance(
-            total_result, tuple) else total_result['total']
+        total_count = total_result[0] if isinstance(total_result, tuple) else total_result["total"]
 
         # 查询当前页的数据，只获取前端需要显示的列
         if db_manager.db_type == "postgresql":
@@ -459,40 +469,41 @@ def get_cross_seed_data():
 
         # Process tags data to ensure it's in the correct format
         for item in data:
-            tags = item.get('tags', [])
+            tags = item.get("tags", [])
             if isinstance(tags, str):
                 try:
                     # Try to parse as JSON list
                     import json
+
                     tags = json.loads(tags)
                 except:
                     # If parsing fails, split by comma
-                    tags = [tag.strip()
-                            for tag in tags.split(',')] if tags else []
-                item['tags'] = tags
+                    tags = [tag.strip() for tag in tags.split(",")] if tags else []
+                item["tags"] = tags
 
             # Ensure is_deleted field is boolean for consistent frontend handling
             # MySQL/SQLite return integers (0/1), PostgreSQL returns booleans (false/true)
-            if 'is_deleted' in item:
-                if isinstance(item['is_deleted'], int):
-                    item['is_deleted'] = bool(item['is_deleted'])
+            if "is_deleted" in item:
+                if isinstance(item["is_deleted"], int):
+                    item["is_deleted"] = bool(item["is_deleted"])
                 # PostgreSQL already returns boolean, no conversion needed
 
             # Ensure is_reviewed field is boolean for consistent frontend handling
             # MySQL/SQLite return integers (0/1), PostgreSQL returns booleans (false/true)
-            if 'is_reviewed' in item:
-                if isinstance(item['is_reviewed'], int):
-                    item['is_reviewed'] = bool(item['is_reviewed'])
+            if "is_reviewed" in item:
+                if isinstance(item["is_reviewed"], int):
+                    item["is_reviewed"] = bool(item["is_reviewed"])
                 # PostgreSQL already returns boolean, no conversion needed
 
             # Extract "无法识别" field from title_components
-            title_components = item.get('title_components', [])
-            unrecognized_value = ''
+            title_components = item.get("title_components", [])
+            unrecognized_value = ""
 
             if isinstance(title_components, str):
                 try:
                     # Try to parse as JSON list
                     import json
+
                     title_components = json.loads(title_components)
                 except:
                     # If parsing fails, keep as is
@@ -501,24 +512,19 @@ def get_cross_seed_data():
             # Find the "无法识别" entry in title_components
             if isinstance(title_components, list):
                 for component in title_components:
-                    if isinstance(component,
-                                  dict) and component.get('key') == '无法识别':
-                        unrecognized_value = component.get('value', '')
+                    if isinstance(component, dict) and component.get("key") == "无法识别":
+                        unrecognized_value = component.get("value", "")
                         break
 
             # Add unrecognized field to item
-            item['unrecognized'] = unrecognized_value
+            item["unrecognized"] = unrecognized_value
 
         # 获取所有目标站点（用于前端筛选选项）
-        cursor.execute(
-            "SELECT nickname FROM sites WHERE migration IN (2, 3) ORDER BY nickname"
-        )
+        cursor.execute("SELECT nickname FROM sites WHERE migration IN (2, 3) ORDER BY nickname")
         target_sites_rows = cursor.fetchall()
         if isinstance(target_sites_rows, list):
             # PostgreSQL返回的是字典列表
-            target_sites_list = [
-                row['nickname'] for row in target_sites_rows if row['nickname']
-            ]
+            target_sites_list = [row["nickname"] for row in target_sites_rows if row["nickname"]]
         else:
             # MySQL和SQLite返回的是元组列表
             target_sites_list = [row[0] for row in target_sites_rows if row[0]]
@@ -538,9 +544,7 @@ def get_cross_seed_data():
         # 将结果转换为列表
         if isinstance(path_rows, list):
             # PostgreSQL返回的是字典列表
-            unique_paths = [
-                row['save_path'] for row in path_rows if row['save_path']
-            ]
+            unique_paths = [row["save_path"] for row in path_rows if row["save_path"]]
         else:
             # MySQL和SQLite返回的是元组列表
             unique_paths = [row[0] for row in path_rows if row[0]]
@@ -551,35 +555,31 @@ def get_cross_seed_data():
         # Generate reverse mappings
         reverse_mappings = generate_reverse_mappings()
 
-        return jsonify({
-            "success": True,
-            "data": data,
-            "count": len(data),
-            "total": total_count,
-            "page": page,
-            "page_size": page_size,
-            "reverse_mappings": reverse_mappings,
-            "unique_paths": unique_paths,  # 添加唯一路径数据
-            "target_sites": target_sites_list  # 添加目标站点列表
-        })
+        return jsonify(
+            {
+                "success": True,
+                "data": data,
+                "count": len(data),
+                "total": total_count,
+                "page": page,
+                "page_size": page_size,
+                "reverse_mappings": reverse_mappings,
+                "unique_paths": unique_paths,  # 添加唯一路径数据
+                "target_sites": target_sites_list,  # 添加目标站点列表
+            }
+        )
     except Exception as e:
         logging.error(f"获取转种数据时出错: {e}")
         return jsonify({"success": False, "error": str(e)}), 500
 
 
-@cross_seed_data_bp.route('/cross-seed-data/test-no-auth',
-                          methods=['POST', 'GET'])
+@cross_seed_data_bp.route("/cross-seed-data/test-no-auth", methods=["POST", "GET"])
 def test_no_auth():
     """测试无认证端点"""
-    return jsonify({
-        "success": True,
-        "message": "无认证测试成功",
-        "timestamp": str(time.time())
-    })
+    return jsonify({"success": True, "message": "无认证测试成功", "timestamp": str(time.time())})
 
 
-@cross_seed_data_bp.route('/cross-seed-data/delete',
-                          methods=['DELETE', 'POST'])
+@cross_seed_data_bp.route("/cross-seed-data/delete", methods=["DELETE", "POST"])
 def delete_cross_seed_data():
     """统一的删除API - 支持单个删除和批量删除"""
     cursor = None
@@ -589,9 +589,9 @@ def delete_cross_seed_data():
         print(data)
 
         # 判断是批量删除还是单个删除
-        if data and 'items' in data:
+        if data and "items" in data:
             # 批量删除
-            items = data['items']
+            items = data["items"]
             if not isinstance(items, list):
                 return jsonify({"success": False, "error": "items 必须是数组"}), 400
 
@@ -599,7 +599,7 @@ def delete_cross_seed_data():
                 return jsonify({"success": False, "error": "项目列表不能为空"}), 400
 
             # 获取数据库管理器
-            db_manager = current_app.config['DB_MANAGER']
+            db_manager = current_app.config["DB_MANAGER"]
             conn = db_manager._get_connection()
             cursor = db_manager._get_cursor(conn)
 
@@ -607,20 +607,24 @@ def delete_cross_seed_data():
 
             # 处理每个要删除的项目
             for item in items:
-                if 'torrent_id' not in item or 'site_name' not in item:
+                if "torrent_id" not in item or "site_name" not in item:
                     logging.warning(f"缺少必要的参数: {item}")
                     continue
 
-                torrent_id = item['torrent_id']
-                site_name = item['site_name']
+                torrent_id = item["torrent_id"]
+                site_name = item["site_name"]
 
                 # 执行删除
                 if db_manager.db_type == "sqlite":
-                    delete_query = "DELETE FROM seed_parameters WHERE torrent_id = ? AND site_name = ?"
+                    delete_query = (
+                        "DELETE FROM seed_parameters WHERE torrent_id = ? AND site_name = ?"
+                    )
                     print(delete_query, (torrent_id, site_name))
                     cursor.execute(delete_query, (torrent_id, site_name))
                 else:  # postgresql
-                    delete_query = "DELETE FROM seed_parameters WHERE torrent_id = %s AND site_name = %s"
+                    delete_query = (
+                        "DELETE FROM seed_parameters WHERE torrent_id = %s AND site_name = %s"
+                    )
                     print(delete_query, (torrent_id, site_name))
                     cursor.execute(delete_query, (torrent_id, site_name))
 
@@ -628,19 +632,21 @@ def delete_cross_seed_data():
 
             conn.commit()
 
-            return jsonify({
-                "success": True,
-                "message": f"成功删除 {deleted_count} 条数据",
-                "deleted_count": deleted_count
-            })
+            return jsonify(
+                {
+                    "success": True,
+                    "message": f"成功删除 {deleted_count} 条数据",
+                    "deleted_count": deleted_count,
+                }
+            )
 
-        elif data and 'torrent_id' in data and 'site_name' in data:
+        elif data and "torrent_id" in data and "site_name" in data:
             # 单个删除
-            torrent_id = data['torrent_id']
-            site_name = data['site_name']
+            torrent_id = data["torrent_id"]
+            site_name = data["site_name"]
 
             # 获取数据库管理器
-            db_manager = current_app.config['DB_MANAGER']
+            db_manager = current_app.config["DB_MANAGER"]
             conn = db_manager._get_connection()
             cursor = db_manager._get_cursor(conn)
 
@@ -650,24 +656,28 @@ def delete_cross_seed_data():
                 print(delete_query, (torrent_id, site_name))
                 cursor.execute(delete_query, (torrent_id, site_name))
             else:  # postgresql
-                delete_query = "DELETE FROM seed_parameters WHERE torrent_id = %s AND site_name = %s"
+                delete_query = (
+                    "DELETE FROM seed_parameters WHERE torrent_id = %s AND site_name = %s"
+                )
                 print(delete_query, (torrent_id, site_name))
                 cursor.execute(delete_query, (torrent_id, site_name))
 
             conn.commit()
 
-            return jsonify({
-                "success": True,
-                "message": f"种子数据 {torrent_id} from {site_name} 已删除"
-            })
+            return jsonify(
+                {"success": True, "message": f"种子数据 {torrent_id} from {site_name} 已删除"}
+            )
 
         else:
-            return jsonify({
-                "success":
-                False,
-                "error":
-                "缺少必需参数: 单个删除需要 torrent_id 和 site_name，批量删除需要 items 数组"
-            }), 400
+            return (
+                jsonify(
+                    {
+                        "success": False,
+                        "error": "缺少必需参数: 单个删除需要 torrent_id 和 site_name，批量删除需要 items 数组",
+                    }
+                ),
+                400,
+            )
 
     except Exception as e:
         logging.error(f"删除种子数据时出错: {e}")
@@ -684,7 +694,7 @@ def delete_cross_seed_data():
 # ============= 批量转种记录API =============
 
 
-@cross_seed_data_bp.route('/batch-enhance/records', methods=['POST'])
+@cross_seed_data_bp.route("/batch-enhance/records", methods=["POST"])
 def add_batch_enhance_record():
     """添加批量转种记录（给Go服务调用）"""
     try:
@@ -693,18 +703,13 @@ def add_batch_enhance_record():
             return jsonify({"success": False, "error": "缺少请求数据"}), 400
 
         # 验证必需字段
-        required_fields = [
-            'batch_id', 'torrent_id', 'source_site', 'target_site', 'status'
-        ]
+        required_fields = ["batch_id", "torrent_id", "source_site", "target_site", "status"]
         for field in required_fields:
             if field not in data:
-                return jsonify({
-                    "success": False,
-                    "error": f"缺少必需字段: {field}"
-                }), 400
+                return jsonify({"success": False, "error": f"缺少必需字段: {field}"}), 400
 
         # 获取数据库管理器
-        db_manager = current_app.config['DB_MANAGER']
+        db_manager = current_app.config["DB_MANAGER"]
         conn = db_manager._get_connection()
         cursor = db_manager._get_cursor(conn)
 
@@ -721,16 +726,17 @@ def add_batch_enhance_record():
 
         # ✨ START: 修改参数元组，增加 title 的值
         params = (
-            data['batch_id'],
-            data['torrent_id'],
-            data.get('title'),  # 从请求数据中获取 title
-            data['source_site'],
-            data['target_site'],
-            data.get('video_size_gb'),
-            data['status'],
-            data.get('success_url'),
-            data.get('error_detail'),
-            data.get('downloader_add_result'))
+            data["batch_id"],
+            data["torrent_id"],
+            data.get("title"),  # 从请求数据中获取 title
+            data["source_site"],
+            data["target_site"],
+            data.get("video_size_gb"),
+            data["status"],
+            data.get("success_url"),
+            data.get("error_detail"),
+            data.get("downloader_add_result"),
+        )
         # ✨ END: 修改参数元组
 
         cursor.execute(sql, params)
@@ -746,25 +752,25 @@ def add_batch_enhance_record():
         return jsonify({"success": False, "error": str(e)}), 500
 
 
-@cross_seed_data_bp.route('/batch-enhance/records', methods=['GET'])
+@cross_seed_data_bp.route("/batch-enhance/records", methods=["GET"])
 def get_batch_enhance_records():
     """获取批量转种记录（给前端调用）"""
     try:
         # 获取查询参数
-        page = int(request.args.get('page', 1))
-        page_size = int(request.args.get('page_size', 50))
-        status = request.args.get('status', '').strip()
-        batch_id = request.args.get('batch_id', '').strip()
-        search = request.args.get('search', '').strip()
-        start_time = request.args.get('start_time', '').strip()
-        end_time = request.args.get('end_time', '').strip()
+        page = int(request.args.get("page", 1))
+        page_size = int(request.args.get("page_size", 50))
+        status = request.args.get("status", "").strip()
+        batch_id = request.args.get("batch_id", "").strip()
+        search = request.args.get("search", "").strip()
+        start_time = request.args.get("start_time", "").strip()
+        end_time = request.args.get("end_time", "").strip()
 
         # 限制页面大小
         page_size = min(page_size, 200)
         offset = (page - 1) * page_size
 
         # 获取数据库管理器
-        db_manager = current_app.config['DB_MANAGER']
+        db_manager = current_app.config["DB_MANAGER"]
         conn = db_manager._get_connection()
         cursor = db_manager._get_cursor(conn)
 
@@ -804,8 +810,7 @@ def get_batch_enhance_records():
         # 时间范围筛选
         if start_time:
             try:
-                start_dt = datetime.fromisoformat(
-                    start_time.replace('Z', '+00:00'))
+                start_dt = datetime.fromisoformat(start_time.replace("Z", "+00:00"))
                 if db_manager.db_type == "postgresql":
                     where_conditions.append("processed_at >= %s")
                 else:
@@ -816,8 +821,7 @@ def get_batch_enhance_records():
 
         if end_time:
             try:
-                end_dt = datetime.fromisoformat(end_time.replace(
-                    'Z', '+00:00'))
+                end_dt = datetime.fromisoformat(end_time.replace("Z", "+00:00"))
                 if db_manager.db_type == "postgresql":
                     where_conditions.append("processed_at <= %s")
                 else:
@@ -835,8 +839,7 @@ def get_batch_enhance_records():
         count_query = f"SELECT COUNT(*) as total FROM batch_enhance_records {where_clause}"
         cursor.execute(count_query, params)
         total_result = cursor.fetchone()
-        total_count = total_result[0] if isinstance(
-            total_result, tuple) else total_result['total']
+        total_count = total_result[0] if isinstance(total_result, tuple) else total_result["total"]
 
         # 查询数据
         if db_manager.db_type == "postgresql":
@@ -871,38 +874,41 @@ def get_batch_enhance_records():
             records = [dict(zip(columns, row)) for row in rows]
 
         # 获取所有唯一的批次ID（用于前端筛选）
-        batch_query = "SELECT DISTINCT batch_id FROM batch_enhance_records ORDER BY batch_id DESC LIMIT 100"
+        batch_query = (
+            "SELECT DISTINCT batch_id FROM batch_enhance_records ORDER BY batch_id DESC LIMIT 100"
+        )
         cursor.execute(batch_query)
         batch_rows = cursor.fetchall()
-        if isinstance(batch_rows, list) and batch_rows and isinstance(
-                batch_rows[0], dict):
-            batch_ids = [row['batch_id'] for row in batch_rows]
+        if isinstance(batch_rows, list) and batch_rows and isinstance(batch_rows[0], dict):
+            batch_ids = [row["batch_id"] for row in batch_rows]
         else:
             batch_ids = [row[0] for row in batch_rows]
 
         cursor.close()
         conn.close()
 
-        return jsonify({
-            "success": True,
-            "records": records,
-            "total": total_count,
-            "page": page,
-            "page_size": page_size,
-            "batch_ids": batch_ids
-        })
+        return jsonify(
+            {
+                "success": True,
+                "records": records,
+                "total": total_count,
+                "page": page,
+                "page_size": page_size,
+                "batch_ids": batch_ids,
+            }
+        )
 
     except Exception as e:
         logging.error(f"获取批量转种记录时出错: {e}")
         return jsonify({"success": False, "error": str(e)}), 500
 
 
-@cross_seed_data_bp.route('/batch-enhance/records', methods=['DELETE'])
+@cross_seed_data_bp.route("/batch-enhance/records", methods=["DELETE"])
 def clear_batch_enhance_records():
     """清空批量转种记录（给前端调用）"""
     try:
         # 获取数据库管理器
-        db_manager = current_app.config['DB_MANAGER']
+        db_manager = current_app.config["DB_MANAGER"]
         conn = db_manager._get_connection()
         cursor = db_manager._get_cursor(conn)
 
@@ -914,35 +920,27 @@ def clear_batch_enhance_records():
         cursor.close()
         conn.close()
 
-        return jsonify({
-            "success": True,
-            "message": f"记录已清空，删除了 {deleted_count} 条记录"
-        })
+        return jsonify({"success": True, "message": f"记录已清空，删除了 {deleted_count} 条记录"})
 
     except Exception as e:
         logging.error(f"清空批量转种记录时出错: {e}")
         return jsonify({"success": False, "error": str(e)}), 500
 
 
-@cross_seed_data_bp.route('/batch-enhance/records/batch/<batch_id>',
-                          methods=['DELETE'])
+@cross_seed_data_bp.route("/batch-enhance/records/batch/<batch_id>", methods=["DELETE"])
 def clear_batch_records_by_id(batch_id):
     """根据批次ID清空特定批次的记录"""
     try:
         # 获取数据库管理器
-        db_manager = current_app.config['DB_MANAGER']
+        db_manager = current_app.config["DB_MANAGER"]
         conn = db_manager._get_connection()
         cursor = db_manager._get_cursor(conn)
 
         # 删除指定批次的记录
         if db_manager.db_type == "postgresql":
-            cursor.execute(
-                "DELETE FROM batch_enhance_records WHERE batch_id = %s",
-                (batch_id, ))
+            cursor.execute("DELETE FROM batch_enhance_records WHERE batch_id = %s", (batch_id,))
         else:
-            cursor.execute(
-                "DELETE FROM batch_enhance_records WHERE batch_id = ?",
-                (batch_id, ))
+            cursor.execute("DELETE FROM batch_enhance_records WHERE batch_id = ?", (batch_id,))
 
         deleted_count = cursor.rowcount
         conn.commit()
@@ -950,12 +948,12 @@ def clear_batch_records_by_id(batch_id):
         cursor.close()
         conn.close()
 
-        return jsonify({
-            "success":
-            True,
-            "message":
-            f"批次 {batch_id} 的记录已清空，删除了 {deleted_count} 条记录"
-        })
+        return jsonify(
+            {
+                "success": True,
+                "message": f"批次 {batch_id} 的记录已清空，删除了 {deleted_count} 条记录",
+            }
+        )
 
     except Exception as e:
         logging.error(f"清空批次记录时出错: {e}")

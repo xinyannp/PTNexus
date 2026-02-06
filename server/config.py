@@ -50,6 +50,9 @@ class ConfigManager:
                 "seedvault_password": "",
                 # [新增] 默认下载器设置
                 "default_downloader": "",
+                # [新增] 转种后限速阈值设置
+                "reseed_speed_limit_ratio_threshold": 1.0,
+                "reseed_speed_limit_upload_mbps": 10,
                 # [新增] 批量发布并发设置
                 # cpu: 按服务器 CPU 线程数 * 2；manual: 使用手动并发数；all: 并发等于目标站点数量
                 "publish_batch_concurrency_mode": "cpu",
@@ -136,6 +139,10 @@ class ConfigManager:
                         self._config["cross_seed"]["seedvault_email"] = ""
                     if "seedvault_password" not in self._config["cross_seed"]:
                         self._config["cross_seed"]["seedvault_password"] = ""
+                    if "reseed_speed_limit_ratio_threshold" not in self._config["cross_seed"]:
+                        self._config["cross_seed"]["reseed_speed_limit_ratio_threshold"] = 1.0
+                    if "reseed_speed_limit_upload_mbps" not in self._config["cross_seed"]:
+                        self._config["cross_seed"]["reseed_speed_limit_upload_mbps"] = 10
                     if "publish_batch_concurrency_mode" not in self._config["cross_seed"]:
                         self._config["cross_seed"]["publish_batch_concurrency_mode"] = "cpu"
                     if "publish_batch_concurrency_manual" not in self._config["cross_seed"]:

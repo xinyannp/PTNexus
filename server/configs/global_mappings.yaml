@@ -440,8 +440,6 @@ global_standard_keys:
     "480p": "resolution.r480p"
     "480P": "resolution.r480p"
     "480p/480i": "resolution.r480p"
-
-    # SD分辨率
     "SD": "resolution.sd"
 
     # iPad分辨率
@@ -1215,6 +1213,12 @@ fallback_chains:
   resolution:
     "resolution.r1080i":
       - "resolution.r1080p"
+    "resolution.r480p":
+      - "resolution.sd"
+    "resolution.r540p":
+      - "resolution.sd"
+    "resolution.sd":
+      - "resolution.r480p"
 
 # General configuration for the fallback mechanism.
 # 降级机制的通用配置。

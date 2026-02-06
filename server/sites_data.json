@@ -619,11 +619,11 @@
   {
     "site": "ilolicon",
     "nickname": "爱萝莉",
-    "base_url": "share.ilolicon.com",
+    "base_url": "mua.xloli.cc",
     "special_tracker_domain": null,
-    "group": "-iloliWeb",
-    "migration": 0,
-    "speed_limit": 50
+    "group": null,
+    "migration": 2,
+    "speed_limit": 10
   },
   {
     "site": "gtkpw",
@@ -927,7 +927,7 @@
     "nickname": "幸运",
     "base_url": "pt.luckpt.de",
     "special_tracker_domain": null,
-    "group": "-LuckDIY,-LuckAni",
+    "group": "-LuckDIY,-LuckAni,-LuckWeb,-LuckMusic,-LuckDocu",
     "description": "LuckPT",
     "migration": 3,
     "speed_limit": 10

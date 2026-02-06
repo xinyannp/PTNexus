@@ -492,6 +492,35 @@
 
             <div class="form-spacer"></div>
 
+            <el-form-item label="转种后限速阈值（分享率）" class="form-item">
+              <el-input-number
+                v-model="settingsForm.reseed_speed_limit_ratio_threshold"
+                :min="0.1"
+                :max="100"
+                :step="0.1"
+                :precision="2"
+                @change="autoSaveCrossSeedSettings"
+              />
+            </el-form-item>
+
+            <el-form-item label="转种后限速值（上传 MB/s）" class="form-item">
+              <el-input-number
+                v-model="settingsForm.reseed_speed_limit_upload_mbps"
+                :min="0"
+                :max="1000"
+                :step="1"
+                :precision="0"
+                @change="autoSaveCrossSeedSettings"
+              />
+              <div style="margin-top: 8px">
+                <el-text type="info" size="small">
+                  当做种分享率达到阈值后，后台会将该种子上传限速调整为该值（0 表示不限速）。
+                </el-text>
+              </div>
+            </el-form-item>
+
+            <div class="form-spacer"></div>
+
             <el-form-item label="批量发布并发策略" class="form-item">
               <el-radio-group
                 v-model="settingsForm.publish_batch_concurrency_mode"
@@ -832,6 +861,8 @@ interface CrossSeedSettings {
   agsv_email?: string
   agsv_password?: string
   default_downloader?: string
+  reseed_speed_limit_ratio_threshold?: number
+  reseed_speed_limit_upload_mbps?: number
   publish_batch_concurrency_mode?: PublishBatchConcurrencyMode
   publish_batch_concurrency_manual?: number
 }
@@ -843,6 +874,8 @@ const settingsForm = reactive<CrossSeedSettings>({
   agsv_email: '',
   agsv_password: '',
   default_downloader: '',
+  reseed_speed_limit_ratio_threshold: 1,
+  reseed_speed_limit_upload_mbps: 10,
   publish_batch_concurrency_mode: 'cpu',
   publish_batch_concurrency_manual: 5,
 })
@@ -1018,6 +1051,8 @@ const autoSaveCrossSeedSettings = async () => {
       agsv_email: settingsForm.agsv_email,
       agsv_password: settingsForm.agsv_password,
       default_downloader: settingsForm.default_downloader,
+      reseed_speed_limit_ratio_threshold: settingsForm.reseed_speed_limit_ratio_threshold,
+      reseed_speed_limit_upload_mbps: settingsForm.reseed_speed_limit_upload_mbps,
       publish_batch_concurrency_mode: settingsForm.publish_batch_concurrency_mode,
       publish_batch_concurrency_manual: settingsForm.publish_batch_concurrency_manual,
       // 同步带上 ptgen token，避免后端覆盖时丢失（后端已做 merge，但这里也保持完整）
@@ -1341,6 +1376,8 @@ const saveCrossSeedSettings = async () => {
       agsv_email: settingsForm.agsv_email,
       agsv_password: settingsForm.agsv_password,
       default_downloader: settingsForm.default_downloader,
+      reseed_speed_limit_ratio_threshold: settingsForm.reseed_speed_limit_ratio_threshold,
+      reseed_speed_limit_upload_mbps: settingsForm.reseed_speed_limit_upload_mbps,
       publish_batch_concurrency_mode: settingsForm.publish_batch_concurrency_mode,
       publish_batch_concurrency_manual: settingsForm.publish_batch_concurrency_manual,
       cspt_ptgen_token: uploadForm.cspt_ptgen_token,
@@ -1399,6 +1436,8 @@ const saveUploadSettings = async () => {
       agsv_email: settingsForm.agsv_email,
       agsv_password: settingsForm.agsv_password,
       default_downloader: settingsForm.default_downloader,
+      reseed_speed_limit_ratio_threshold: settingsForm.reseed_speed_limit_ratio_threshold,
+      reseed_speed_limit_upload_mbps: settingsForm.reseed_speed_limit_upload_mbps,
       cspt_ptgen_token: uploadForm.cspt_ptgen_token,
       publish_batch_concurrency_mode: settingsForm.publish_batch_concurrency_mode,
       publish_batch_concurrency_manual: settingsForm.publish_batch_concurrency_manual,
