@@ -392,8 +392,13 @@
                   inactive-text="禁用匿名"
                 />
               </div>
+              <el-text type="info" size="small" style="display: block">
+                <el-icon size="12" style="vertical-align: middle; margin-right: 4px">
+                  <InfoFilled />
+                </el-icon>
+                启用后，发布种子时将使用匿名模式，不显示上传者信息
+              </el-text>
             </el-form-item>
-
             <div class="form-item" style="margin-bottom: 16px">
               <div
                 style="
@@ -432,19 +437,41 @@
                   </el-icon>
                 </template>
               </el-input>
+              <el-text type="info" size="small" style="display: block; margin-top: 8px">
+                <el-icon size="12" style="vertical-align: middle; margin-right: 4px">
+                  <InfoFilled />
+                </el-icon>
+                配置后优先使用该 API 获取影片信息，每日限量 100+
+                次，上限随等级提升，使用完会自动切换内置的其他 PTGen API
+              </el-text>
+            </div>
+
+            <div class="form-item" style="margin-bottom: 16px">
+              <div style="display: flex; align-items: center; gap: 12px">
+                <span
+                  style="font-weight: 500; color: var(--el-text-color-regular); font-size: 13px"
+                >
+                  出种后分享率检测间隔
+                </span>
+                <el-input-number
+                  v-model="ratioLimiterIntervalMinutes"
+                  :min="10"
+                  :max="1440"
+                  size="small"
+                  style="width: 120px"
+                  :controls="true"
+                />
+                <span style="color: var(--el-text-color-regular); font-size: 13px">分钟</span>
+              </div>
+              <el-text type="info" size="small" style="display: block; margin-top: 8px">
+                <el-icon size="12" style="vertical-align: middle; margin-right: 4px">
+                  <InfoFilled />
+                </el-icon>
+                分享率阈值和限速设置请在「站点设置」中为每个站点单独配置
+              </el-text>
             </div>
 
             <div class="form-spacer"></div>
-
-            <el-text type="info" size="small" class="proxy-hint">
-              <el-icon size="12">
-                <InfoFilled />
-              </el-icon>
-              启用后，发布种子时将使用匿名模式，不显示上传者信息<br />
-              配置财神 PTGen API Token 后，优先使用该API获取影片信息<br />
-              财神 PTGen API 每日限量 100+ 次，上限随等级提升<br />
-              使用完会自动切换内置的其他 PTGen API
-            </el-text>
           </el-form>
         </div>
       </div>
@@ -489,35 +516,6 @@
               </el-icon>
               发种完成后自动将种子添加到指定的下载器。选择"使用源种子所在的下载器"或不选择任何下载器，则添加到源种子所在的下载器。
             </el-text>
-
-            <div class="form-spacer"></div>
-
-            <el-form-item label="转种后限速阈值（分享率）" class="form-item">
-              <el-input-number
-                v-model="settingsForm.reseed_speed_limit_ratio_threshold"
-                :min="0.1"
-                :max="100"
-                :step="0.1"
-                :precision="2"
-                @change="autoSaveCrossSeedSettings"
-              />
-            </el-form-item>
-
-            <el-form-item label="转种后限速值（上传 MB/s）" class="form-item">
-              <el-input-number
-                v-model="settingsForm.reseed_speed_limit_upload_mbps"
-                :min="0"
-                :max="1000"
-                :step="1"
-                :precision="0"
-                @change="autoSaveCrossSeedSettings"
-              />
-              <div style="margin-top: 8px">
-                <el-text type="info" size="small">
-                  当做种分享率达到阈值后，后台会将该种子上传限速调整为该值（0 表示不限速）。
-                </el-text>
-              </div>
-            </el-form-item>
 
             <div class="form-spacer"></div>
 
@@ -796,7 +794,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, reactive, nextTick } from 'vue'
+import { ref, onMounted, reactive, nextTick, computed } from 'vue'
 import axios from 'axios'
 import { ElMessage } from 'element-plus'
 import {
@@ -861,8 +859,6 @@ interface CrossSeedSettings {
   agsv_email?: string
   agsv_password?: string
   default_downloader?: string
-  reseed_speed_limit_ratio_threshold?: number
-  reseed_speed_limit_upload_mbps?: number
   publish_batch_concurrency_mode?: PublishBatchConcurrencyMode
   publish_batch_concurrency_manual?: number
 }
@@ -874,8 +870,6 @@ const settingsForm = reactive<CrossSeedSettings>({
   agsv_email: '',
   agsv_password: '',
   default_downloader: '',
-  reseed_speed_limit_ratio_threshold: 1,
-  reseed_speed_limit_upload_mbps: 10,
   publish_batch_concurrency_mode: 'cpu',
   publish_batch_concurrency_manual: 5,
 })
@@ -944,6 +938,15 @@ const savingUpload = ref(false)
 const uploadForm = reactive({
   anonymous_upload: true, // 默认启用匿名上传
   cspt_ptgen_token: '', // 财神ptgen token
+  ratio_limiter_interval_seconds: 1800,
+})
+
+// 分享率检测间隔（分钟），用于UI显示和输入
+const ratioLimiterIntervalMinutes = computed({
+  get: () => Math.round(uploadForm.ratio_limiter_interval_seconds / 60),
+  set: (val: number) => {
+    uploadForm.ratio_limiter_interval_seconds = val * 60
+  },
 })
 
 // 打开财神PTGen网页获取Token
@@ -1051,8 +1054,6 @@ const autoSaveCrossSeedSettings = async () => {
       agsv_email: settingsForm.agsv_email,
       agsv_password: settingsForm.agsv_password,
       default_downloader: settingsForm.default_downloader,
-      reseed_speed_limit_ratio_threshold: settingsForm.reseed_speed_limit_ratio_threshold,
-      reseed_speed_limit_upload_mbps: settingsForm.reseed_speed_limit_upload_mbps,
       publish_batch_concurrency_mode: settingsForm.publish_batch_concurrency_mode,
       publish_batch_concurrency_manual: settingsForm.publish_batch_concurrency_manual,
       // 同步带上 ptgen token，避免后端覆盖时丢失（后端已做 merge，但这里也保持完整）
@@ -1146,6 +1147,8 @@ const fetchSettings = async () => {
     // 获取上传设置
     if (config.upload_settings) {
       uploadForm.anonymous_upload = config.upload_settings.anonymous_upload !== false // 默认为true
+      uploadForm.ratio_limiter_interval_seconds =
+        Number(config.upload_settings.ratio_limiter_interval_seconds) || 1800
     }
 
     // 获取财神ptgen token（从cross_seed配置中读取）
@@ -1376,8 +1379,6 @@ const saveCrossSeedSettings = async () => {
       agsv_email: settingsForm.agsv_email,
       agsv_password: settingsForm.agsv_password,
       default_downloader: settingsForm.default_downloader,
-      reseed_speed_limit_ratio_threshold: settingsForm.reseed_speed_limit_ratio_threshold,
-      reseed_speed_limit_upload_mbps: settingsForm.reseed_speed_limit_upload_mbps,
       publish_batch_concurrency_mode: settingsForm.publish_batch_concurrency_mode,
       publish_batch_concurrency_manual: settingsForm.publish_batch_concurrency_manual,
       cspt_ptgen_token: uploadForm.cspt_ptgen_token,
@@ -1426,6 +1427,7 @@ const saveUploadSettings = async () => {
     // 保存匿名上传设置
     const uploadSettings = {
       anonymous_upload: uploadForm.anonymous_upload,
+      ratio_limiter_interval_seconds: Number(uploadForm.ratio_limiter_interval_seconds) || 1800,
     }
     await axios.post('/api/upload_settings', uploadSettings)
 
@@ -1436,8 +1438,6 @@ const saveUploadSettings = async () => {
       agsv_email: settingsForm.agsv_email,
       agsv_password: settingsForm.agsv_password,
       default_downloader: settingsForm.default_downloader,
-      reseed_speed_limit_ratio_threshold: settingsForm.reseed_speed_limit_ratio_threshold,
-      reseed_speed_limit_upload_mbps: settingsForm.reseed_speed_limit_upload_mbps,
       cspt_ptgen_token: uploadForm.cspt_ptgen_token,
       publish_batch_concurrency_mode: settingsForm.publish_batch_concurrency_mode,
       publish_batch_concurrency_manual: settingsForm.publish_batch_concurrency_manual,

@@ -15,6 +15,7 @@ from flask_cors import CORS
 from config import get_db_config, config_manager
 from database import DatabaseManager, reconcile_historical_data
 from core.services import start_data_tracker, stop_data_tracker
+from core.ratio_speed_limiter import start_ratio_speed_limiter, stop_ratio_speed_limiter
 from core.iyuu import start_iyuu_thread, stop_iyuu_thread
 
 # --- 日志基础配置 ---
@@ -448,6 +449,7 @@ def create_app():
     if os.environ.get("WERKZEUG_RUN_MAIN") == "true":
         logging.info("正在启动数据追踪线程...")
         start_data_tracker(db_manager, config_manager)
+        start_ratio_speed_limiter(db_manager, config_manager)
 
         # # --- 启动IYUU后台线程 ---
         # 注释掉IYUU线程的自动启动，改为手动触发
@@ -510,6 +512,7 @@ if __name__ == "__main__":
             from core.services import stop_data_tracker
 
             stop_data_tracker()
+            stop_ratio_speed_limiter()
         except Exception as e:
             logging.error(f"停止数据追踪线程失败: {e}", exc_info=True)
         logging.info("后台线程清理完成。")

@@ -9,6 +9,7 @@ from urllib.parse import urlparse
 
 # 从项目根目录导入核心模块
 from core import services
+from core.ratio_speed_limiter import start_ratio_speed_limiter, stop_ratio_speed_limiter, restart_ratio_speed_limiter
 from database import reconcile_historical_data
 from utils import generate_downloader_id_from_host, validate_downloader_id
 
@@ -90,6 +91,7 @@ def reconcile_and_start_tracker():
     config_manager = management_bp.config_manager
     reconcile_historical_data(db_manager, config_manager.get())
     services.start_data_tracker(db_manager, config_manager)
+    start_ratio_speed_limiter(db_manager, config_manager)
     # 注释掉自动启动IYUU线程，改为手动触发
     # try:
     #     from core.iyuu import start_iyuu_thread
@@ -157,6 +159,7 @@ def get_sites():
         if db_manager.db_type == "postgresql":
             select_fields = """
                 s.id, s.nickname, s.site, s.base_url, s.special_tracker_domain, s."group", s.speed_limit,
+                s.ratio_threshold, s.seed_speed_limit,
                 CASE WHEN s.cookie IS NOT NULL AND s.cookie != '' THEN 1 ELSE 0 END as has_cookie,
                 CASE WHEN s.passkey IS NOT NULL AND s.passkey != '' THEN 1 ELSE 0 END as has_passkey,
                 s.cookie, s.passkey
@@ -164,6 +167,7 @@ def get_sites():
         else:
             select_fields = """
                 s.id, s.nickname, s.site, s.base_url, s.special_tracker_domain, s.`group`, s.speed_limit,
+                s.ratio_threshold, s.seed_speed_limit,
                 CASE WHEN s.cookie IS NOT NULL AND s.cookie != '' THEN 1 ELSE 0 END as has_cookie,
                 CASE WHEN s.passkey IS NOT NULL AND s.passkey != '' THEN 1 ELSE 0 END as has_passkey,
                 s.cookie, s.passkey
@@ -548,6 +552,7 @@ def update_settings():
         if restart_needed:
             logging.info("配置已更新，将重启数据追踪服务...")
             services.stop_data_tracker()
+            stop_ratio_speed_limiter()
             # 注释掉IYUU线程的停止和重启，因为不再自动启动
             # try:
             #     from core.iyuu import stop_iyuu_thread
@@ -864,6 +869,7 @@ def get_upload_settings():
 def save_upload_settings():
     """保存上传相关设置。"""
     config_manager = management_bp.config_manager
+    db_manager = management_bp.db_manager
     new_settings = request.json
 
     current_config = config_manager.get()
@@ -872,6 +878,8 @@ def save_upload_settings():
     current_config["upload_settings"] = new_settings
 
     if config_manager.save(current_config):
+        # 重启 RatioSpeedLimiter 线程以应用新的间隔配置
+        restart_ratio_speed_limiter(db_manager, config_manager)
         return jsonify({"success": True, "message": "上传设置已成功保存。"})
     else:
         return jsonify({"success": False, "message": "无法保存上传设置。"}), 500

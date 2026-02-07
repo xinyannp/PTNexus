@@ -111,7 +111,9 @@ class DatabaseMigrationManager:
                             'cookie': 'TEXT DEFAULT NULL',
                             'passkey': 'TEXT DEFAULT NULL',
                             'migration': 'int(11) NOT NULL DEFAULT 1',
-                            'speed_limit': 'int(11) NOT NULL DEFAULT 0'
+                            'speed_limit': 'int(11) NOT NULL DEFAULT 0',
+                            'ratio_threshold': 'REAL NOT NULL DEFAULT 3.0',
+                            'seed_speed_limit': 'int(11) NOT NULL DEFAULT 5'
                         },
                         'primary_key': ['id'],
                         'engine': 'InnoDB',
@@ -252,7 +254,9 @@ class DatabaseMigrationManager:
                             'cookie': 'TEXT',
                             'passkey': 'TEXT',
                             'migration': 'INTEGER NOT NULL DEFAULT 1',
-                            'speed_limit': 'INTEGER NOT NULL DEFAULT 0'
+                            'speed_limit': 'INTEGER NOT NULL DEFAULT 0',
+                            'ratio_threshold': 'REAL NOT NULL DEFAULT 3.0',
+                            'seed_speed_limit': 'INTEGER NOT NULL DEFAULT 5'
                         },
                         'primary_key': ['id']
                     },
@@ -387,7 +391,9 @@ class DatabaseMigrationManager:
                             'cookie': 'TEXT',
                             'passkey': 'TEXT',
                             'migration': 'INTEGER NOT NULL DEFAULT 1',
-                            'speed_limit': 'INTEGER NOT NULL DEFAULT 0'
+                            'speed_limit': 'INTEGER NOT NULL DEFAULT 0',
+                            'ratio_threshold': 'REAL NOT NULL DEFAULT 3.0',
+                            'seed_speed_limit': 'INTEGER NOT NULL DEFAULT 5'
                         },
                         'primary_key': ['id']
                     },
@@ -480,44 +486,48 @@ class DatabaseMigrationManager:
             self._migrate_add_passkey_column(conn, cursor)
 
             # 3. 执行列添加迁移（seeders列）
-            logging.info("迁移阶段: 3/10 添加 seeders 列检查")
+            logging.info("迁移阶段: 3/13 添加 seeders 列检查")
             self._migrate_add_seeders_column(conn, cursor)
 
+            # 4. 执行列添加迁移（ratio_threshold / seed_speed_limit 列）
+            logging.info("迁移阶段: 4/13 添加 ratio_threshold / seed_speed_limit 列检查")
+            self._migrate_add_ratio_limit_columns(conn, cursor)
+
             # 4. 删除seed_parameters中的save_path/downloader_id列
-            logging.info("迁移阶段: 4/10 删除 seed_parameters.save_path/downloader_id")
+            logging.info("迁移阶段: 5/13 删除 seed_parameters.save_path/downloader_id")
             self._migrate_remove_seed_parameters_path_fields(conn, cursor)
 
             # 5. 删除seed_parameters中的is_deleted列
-            logging.info("迁移阶段: 5/10 删除 seed_parameters.is_deleted")
+            logging.info("迁移阶段: 6/13 删除 seed_parameters.is_deleted")
             self._migrate_remove_seed_parameters_is_deleted(conn, cursor)
 
             # 6. 执行BDInfo字段迁移
-            logging.info("迁移阶段: 6/12 删除 seed_parameters.id")
+            logging.info("迁移阶段: 7/13 删除 seed_parameters.id")
             self._migrate_remove_seed_parameters_id(conn, cursor)
 
             # 7. 执行BDInfo字段迁移
-            logging.info("迁移阶段: 7/12 BDInfo 字段迁移")
+            logging.info("迁移阶段: 8/13 BDInfo 字段迁移")
             self.migrate_bdinfo_fields(conn, cursor)
 
             # 8. 执行MySQL字符集统一迁移
             if self.db_type == "mysql":
-                logging.info("迁移阶段: 8/12 MySQL 字符集统一")
+                logging.info("迁移阶段: 9/13 MySQL 字符集统一")
                 self._migrate_mysql_collation_unification(conn, cursor)
 
             # 9. 执行完整的Schema完整性检查
-            logging.info("迁移阶段: 9/12 Schema 完整性检查")
+            logging.info("迁移阶段: 10/13 Schema 完整性检查")
             self._ensure_schema_integrity(conn, cursor)
 
             # 10. 执行复合主键迁移
-            logging.info("迁移阶段: 10/12 复合主键迁移")
+            logging.info("迁移阶段: 11/13 复合主键迁移")
             self._migrate_composite_primary_key(conn, cursor)
 
             # 11. 执行片源平台格式修复迁移
-            logging.info("迁移阶段: 11/12 片源平台格式修复")
+            logging.info("迁移阶段: 12/13 片源平台格式修复")
             self._migrate_source_platform_format(conn, cursor)
 
             # 12. 执行添加tmdb_link列迁移
-            logging.info("迁移阶段: 12/12 添加 tmdb_link 列")
+            logging.info("迁移阶段: 13/13 添加 tmdb_link 列")
             self._migrate_add_tmdb_link_column(conn, cursor)
 
             conn.commit()
@@ -1088,6 +1098,53 @@ class DatabaseMigrationManager:
         except Exception as e:
             logging.warning(f"迁移添加seeders列时出错: {e}")
 
+    def _migrate_add_ratio_limit_columns(self, conn, cursor):
+        """迁移：为sites表添加分享率阈值和出种限速列"""
+        try:
+            logging.info("检查是否需要添加sites表中的ratio_threshold/seed_speed_limit列...")
+
+            ratio_column_exists = self._column_exists(cursor, 'sites', 'ratio_threshold')
+            seed_limit_column_exists = self._column_exists(cursor, 'sites', 'seed_speed_limit')
+
+            if ratio_column_exists and seed_limit_column_exists:
+                logging.info("ratio_threshold 与 seed_speed_limit 列已存在，执行默认值回填检查")
+
+            if self.db_type == "mysql":
+                if not ratio_column_exists:
+                    cursor.execute("ALTER TABLE sites ADD COLUMN ratio_threshold REAL NOT NULL DEFAULT 3.0")
+                    logging.info("✓ 成功添加sites表中的ratio_threshold列 (MYSQL)")
+                if not seed_limit_column_exists:
+                    cursor.execute("ALTER TABLE sites ADD COLUMN seed_speed_limit INT NOT NULL DEFAULT 5")
+                    logging.info("✓ 成功添加sites表中的seed_speed_limit列 (MYSQL)")
+            elif self.db_type == "postgresql":
+                if not ratio_column_exists:
+                    cursor.execute('ALTER TABLE sites ADD COLUMN ratio_threshold REAL NOT NULL DEFAULT 3.0')
+                    logging.info("✓ 成功添加sites表中的ratio_threshold列 (POSTGRESQL)")
+                if not seed_limit_column_exists:
+                    cursor.execute('ALTER TABLE sites ADD COLUMN seed_speed_limit INTEGER NOT NULL DEFAULT 5')
+                    logging.info("✓ 成功添加sites表中的seed_speed_limit列 (POSTGRESQL)")
+            else:  # SQLite
+                if not ratio_column_exists:
+                    self._add_column_to_sqlite_table(conn, cursor, 'sites', 'ratio_threshold', 'REAL NOT NULL DEFAULT 3.0')
+                    logging.info("✓ 成功添加sites表中的ratio_threshold列 (SQLITE)")
+                if not seed_limit_column_exists:
+                    self._add_column_to_sqlite_table(conn, cursor, 'sites', 'seed_speed_limit', 'INTEGER NOT NULL DEFAULT 5')
+                    logging.info("✓ 成功添加sites表中的seed_speed_limit列 (SQLITE)")
+
+            # 对于已有列，统一补齐默认值与空值
+            if self.db_type == "mysql":
+                cursor.execute("UPDATE sites SET ratio_threshold = 3.0 WHERE ratio_threshold IS NULL OR ratio_threshold <= 0")
+                cursor.execute("UPDATE sites SET seed_speed_limit = 5 WHERE seed_speed_limit IS NULL OR seed_speed_limit < 0")
+            elif self.db_type == "postgresql":
+                cursor.execute("UPDATE sites SET ratio_threshold = 3.0 WHERE ratio_threshold IS NULL OR ratio_threshold <= 0")
+                cursor.execute("UPDATE sites SET seed_speed_limit = 5 WHERE seed_speed_limit IS NULL OR seed_speed_limit < 0")
+            else:
+                cursor.execute("UPDATE sites SET ratio_threshold = 3.0 WHERE ratio_threshold IS NULL OR ratio_threshold <= 0")
+                cursor.execute("UPDATE sites SET seed_speed_limit = 5 WHERE seed_speed_limit IS NULL OR seed_speed_limit < 0")
+
+        except Exception as e:
+            logging.warning(f"迁移添加ratio_threshold/seed_speed_limit列时出错: {e}")
+
     def _migrate_remove_seed_parameters_path_fields(self, conn, cursor):
         """迁移：删除seed_parameters表中的save_path/downloader_id列"""
         try:
@@ -1622,21 +1679,31 @@ class DatabaseMigrationManager:
                     col_parts.append(not_null)
                 if default_val:
                     col_parts.append(default_val)
-                
+
                 col_def_str = " ".join(col_parts)
                 create_columns.append(col_def_str)
-                select_columns.append(col_name)
+                # SELECT 语句中也需要对保留字加引号
+                select_columns.append(quoted_col_name)
 
             # 添加新列
             create_columns.append(f"{column_name} {column_def}")
-            select_columns.append(column_name)  # 添加新列名到列名列表
+
+            # 从列定义中提取默认值（如果有 NOT NULL 且有 DEFAULT，需要使用默认值而非 NULL）
+            default_value = "NULL"
+            column_def_upper = column_def.upper()
+            if "DEFAULT" in column_def_upper:
+                # 提取 DEFAULT 后面的值
+                import re
+                match = re.search(r'DEFAULT\s+([^\s,]+)', column_def, re.IGNORECASE)
+                if match:
+                    default_value = match.group(1)
 
             # 创建临时表
             create_sql = f"CREATE TABLE {temp_table} ({', '.join(create_columns)})"
             cursor.execute(create_sql)
 
-            # 复制数据（新列的值设为NULL）
-            insert_sql = f"INSERT INTO {temp_table} ({', '.join(select_columns)}) SELECT {', '.join(select_columns[:-1])}, NULL FROM {table_name}"
+            # 复制数据（新列使用默认值）
+            insert_sql = f"INSERT INTO {temp_table} ({', '.join(select_columns)}, {column_name}) SELECT {', '.join(select_columns)}, {default_value} FROM {table_name}"
             cursor.execute(insert_sql)
 
             # 删除原表，重命名临时表
@@ -1676,7 +1743,9 @@ class DatabaseMigrationManager:
                     cookie TEXT,
                     passkey TEXT DEFAULT NULL,
                     migration INTEGER NOT NULL DEFAULT 1,
-                    speed_limit INTEGER NOT NULL DEFAULT 0
+                    speed_limit INTEGER NOT NULL DEFAULT 0,
+                    ratio_threshold REAL NOT NULL DEFAULT 3.0,
+                    seed_speed_limit INTEGER NOT NULL DEFAULT 5
                 )
             """)
 
@@ -1689,20 +1758,25 @@ class DatabaseMigrationManager:
                     else:
                         # 元组格式，需要转换为字典
                         columns = ['id', 'site', 'nickname', 'base_url', 'special_tracker_domain',
-                                 'group', 'description', 'cookie', 'migration', 'speed_limit']
+                                 'group', 'description', 'cookie', 'migration', 'speed_limit',
+                                 'ratio_threshold', 'seed_speed_limit']
                         data = dict(zip(columns, row))
 
                     # 插入数据，passkey默认为NULL
                     cursor.execute("""
                         INSERT INTO sites (site, nickname, base_url, special_tracker_domain,
-                                         "group", description, cookie, passkey, migration, speed_limit)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                         "group", description, cookie, passkey, migration, speed_limit,
+                                         ratio_threshold, seed_speed_limit)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """, (
                         data.get('site'), data.get('nickname'), data.get('base_url'),
                         data.get('special_tracker_domain'), data.get('group'),
                         data.get('description'), data.get('cookie'), None,
-                        data.get('migration', 1), data.get('speed_limit', 0)
+                        data.get('migration', 1), data.get('speed_limit', 0),
+                        data.get('ratio_threshold'), data.get('seed_speed_limit')
                     ))
+
+            conn.commit()
 
             logging.info("✓ 成功创建包含passkey列的sites表")
 

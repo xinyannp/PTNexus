@@ -184,13 +184,25 @@ class DatabaseManager:
         try:
             # 根据数据库类型使用正确的标识符引用符
             if self.db_type == "postgresql":
-                sql = f"INSERT INTO sites (site, nickname, base_url, special_tracker_domain, \"group\", description, cookie, passkey, speed_limit) VALUES ({ph}, {ph}, {ph}, {ph}, {ph}, {ph}, {ph}, {ph}, {ph})"
+                sql = f"INSERT INTO sites (site, nickname, base_url, special_tracker_domain, \"group\", description, cookie, passkey, speed_limit, ratio_threshold, seed_speed_limit) VALUES ({ph}, {ph}, {ph}, {ph}, {ph}, {ph}, {ph}, {ph}, {ph}, {ph}, {ph})"
             else:
-                sql = f"INSERT INTO sites (site, nickname, base_url, special_tracker_domain, `group`, description, cookie, passkey, speed_limit) VALUES ({ph}, {ph}, {ph}, {ph}, {ph}, {ph}, {ph}, {ph}, {ph})"
+                sql = f"INSERT INTO sites (site, nickname, base_url, special_tracker_domain, `group`, description, cookie, passkey, speed_limit, ratio_threshold, seed_speed_limit) VALUES ({ph}, {ph}, {ph}, {ph}, {ph}, {ph}, {ph}, {ph}, {ph}, {ph}, {ph})"
             # 去除cookie字符串首尾的换行符和多余空白字符
             cookie = site_data.get("cookie")
             if cookie:
                 cookie = cookie.strip()
+
+            ratio_threshold = site_data.get("ratio_threshold")
+            if ratio_threshold in (None, ""):
+                ratio_threshold = 3.0
+            else:
+                ratio_threshold = float(ratio_threshold)
+
+            seed_speed_limit = site_data.get("seed_speed_limit")
+            if seed_speed_limit in (None, ""):
+                seed_speed_limit = 5
+            else:
+                seed_speed_limit = int(seed_speed_limit)
 
             params = (
                 site_data.get("site"),
@@ -202,6 +214,8 @@ class DatabaseManager:
                 cookie,
                 site_data.get("passkey"),
                 int(site_data.get("speed_limit", 0)),
+                ratio_threshold,
+                seed_speed_limit,
             )
             cursor.execute(sql, params)
             conn.commit()
@@ -227,13 +241,27 @@ class DatabaseManager:
         try:
             # 根据数据库类型使用正确的标识符引用符
             if self.db_type == "postgresql":
-                sql = f"UPDATE sites SET nickname = {ph}, base_url = {ph}, special_tracker_domain = {ph}, \"group\" = {ph}, description = {ph}, cookie = {ph}, passkey = {ph}, speed_limit = {ph} WHERE id = {ph}"
+                sql = f"UPDATE sites SET nickname = {ph}, base_url = {ph}, special_tracker_domain = {ph}, \"group\" = {ph}, description = {ph}, cookie = {ph}, passkey = {ph}, speed_limit = {ph}, ratio_threshold = {ph}, seed_speed_limit = {ph} WHERE id = {ph}"
             else:
-                sql = f"UPDATE sites SET nickname = {ph}, base_url = {ph}, special_tracker_domain = {ph}, `group` = {ph}, description = {ph}, cookie = {ph}, passkey = {ph}, speed_limit = {ph} WHERE id = {ph}"
+                sql = f"UPDATE sites SET nickname = {ph}, base_url = {ph}, special_tracker_domain = {ph}, `group` = {ph}, description = {ph}, cookie = {ph}, passkey = {ph}, speed_limit = {ph}, ratio_threshold = {ph}, seed_speed_limit = {ph} WHERE id = {ph}"
             # 去除cookie字符串首尾的换行符和多余空白字符
             cookie = site_data.get("cookie")
             if cookie:
                 cookie = cookie.strip()
+
+            ratio_threshold = site_data.get("ratio_threshold")
+            if ratio_threshold in (None, ""):
+                ratio_threshold = 3.0
+            else:
+                ratio_threshold = float(ratio_threshold)
+                if ratio_threshold <= 0:
+                    ratio_threshold = 3.0
+
+            seed_speed_limit = site_data.get("seed_speed_limit")
+            if seed_speed_limit in (None, ""):
+                seed_speed_limit = 5
+            else:
+                seed_speed_limit = int(seed_speed_limit)
 
             params = (
                 site_data.get("nickname"),
@@ -244,6 +272,8 @@ class DatabaseManager:
                 cookie,
                 site_data.get("passkey"),
                 int(site_data.get("speed_limit", 0)),
+                ratio_threshold,
+                seed_speed_limit,
                 site_data.get("id"),
             )
             cursor.execute(sql, params)
@@ -353,7 +383,7 @@ class DatabaseManager:
             try:
                 # [修改] 查询时额外获取 speed_limit 和 passkey 字段，用于后续逻辑判断
                 cursor.execute(
-                    "SELECT id, site, nickname, base_url, speed_limit, passkey FROM sites"
+                    "SELECT id, site, nickname, base_url, speed_limit, passkey, ratio_threshold, seed_speed_limit FROM sites"
                 )
                 existing_sites = {}
                 for row in cursor.fetchall():
@@ -416,6 +446,28 @@ class DatabaseManager:
                             logging.debug(f"为站点 '{site_name}' 设置新的 passkey")
                         elif db_passkey:
                             logging.debug(f"保护站点 '{site_name}' 的现有 passkey")
+
+                        db_ratio_threshold = existing_site.get('ratio_threshold')
+                        json_ratio_threshold = site_info.get('ratio_threshold')
+                        final_ratio_threshold = db_ratio_threshold
+
+                        # 保护用户在数据库中的手动配置：仅当数据库为空或非法时才尝试用JSON/默认值回填
+                        if final_ratio_threshold is None or float(final_ratio_threshold) <= 0:
+                            if json_ratio_threshold is not None and float(json_ratio_threshold) > 0:
+                                final_ratio_threshold = float(json_ratio_threshold)
+                            else:
+                                final_ratio_threshold = 3.0
+
+                        db_seed_speed_limit = existing_site.get('seed_speed_limit')
+                        json_seed_speed_limit = site_info.get('seed_speed_limit')
+                        final_seed_speed_limit = db_seed_speed_limit
+
+                        # 保护用户在数据库中的手动配置：仅当数据库为空或非法时才尝试用JSON/默认值回填
+                        if final_seed_speed_limit is None or int(final_seed_speed_limit) < 0:
+                            if json_seed_speed_limit is not None and int(json_seed_speed_limit) >= 0:
+                                final_seed_speed_limit = int(json_seed_speed_limit)
+                            else:
+                                final_seed_speed_limit = 5
                         # --- [核心修改逻辑结束] ---
 
                         # 构建更新语句，不包含 cookie，使用保护后的 passkey
@@ -423,21 +475,24 @@ class DatabaseManager:
                             update_sql = """
                                 UPDATE sites
                                 SET site = %s, nickname = %s, base_url = %s, special_tracker_domain = %s,
-                                    "group" = %s, description = %s, passkey = %s, migration = %s, speed_limit = %s
+                                    "group" = %s, description = %s, passkey = %s, migration = %s, speed_limit = %s,
+                                    ratio_threshold = %s, seed_speed_limit = %s
                                 WHERE id = %s
                             """
                         elif self.db_type == "mysql":
                             update_sql = """
                                 UPDATE sites
                                 SET site = %s, nickname = %s, base_url = %s, special_tracker_domain = %s,
-                                    `group` = %s, description = %s, passkey = %s, migration = %s, speed_limit = %s
+                                    `group` = %s, description = %s, passkey = %s, migration = %s, speed_limit = %s,
+                                    ratio_threshold = %s, seed_speed_limit = %s
                                 WHERE id = %s
                             """
                         else:  # SQLite
                             update_sql = """
                                 UPDATE sites
                                 SET site = ?, nickname = ?, base_url = ?, special_tracker_domain = ?,
-                                    "group" = ?, description = ?, passkey = ?, migration = ?, speed_limit = ?
+                                    "group" = ?, description = ?, passkey = ?, migration = ?, speed_limit = ?,
+                                    ratio_threshold = ?, seed_speed_limit = ?
                                 WHERE id = ?
                             """
 
@@ -454,6 +509,8 @@ class DatabaseManager:
                                 final_passkey,  # 使用保护后的 passkey 值
                                 site_info.get('migration', 0),
                                 final_speed_limit,  # 使用条件判断后的最终值
+                                final_ratio_threshold,
+                                final_seed_speed_limit,
                                 existing_site['id']))
                         updated_count += 1
                         logging.debug(f"更新了站点: {site_name}")
@@ -464,8 +521,8 @@ class DatabaseManager:
                             cursor.execute(
                                 """
                                 INSERT INTO sites
-                                (site, nickname, base_url, special_tracker_domain, "group", description, passkey, migration, speed_limit)
-                                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                                (site, nickname, base_url, special_tracker_domain, "group", description, passkey, migration, speed_limit, ratio_threshold, seed_speed_limit)
+                                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                             """, (site_info.get('site'),
                                   site_info.get('nickname'),
                                   site_info.get('base_url'),
@@ -474,14 +531,16 @@ class DatabaseManager:
                                   site_info.get('description'),
                                   site_info.get('passkey'),
                                   site_info.get('migration', 0),
-                                  site_info.get('speed_limit', 0)))
+                                  site_info.get('speed_limit', 0),
+                                  site_info.get('ratio_threshold', 3.0),
+                                  site_info.get('seed_speed_limit', 5)))
                         elif self.db_type == "mysql":
                             # 添加新站点
                             cursor.execute(
                                 """
                                 INSERT INTO sites
-                                (site, nickname, base_url, special_tracker_domain, `group`, description, passkey, migration, speed_limit)
-                                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                                (site, nickname, base_url, special_tracker_domain, `group`, description, passkey, migration, speed_limit, ratio_threshold, seed_speed_limit)
+                                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                             """, (site_info.get('site'),
                                   site_info.get('nickname'),
                                   site_info.get('base_url'),
@@ -490,14 +549,16 @@ class DatabaseManager:
                                   site_info.get('description'),
                                   site_info.get('passkey'),
                                   site_info.get('migration', 0),
-                                  site_info.get('speed_limit', 0)))
+                                  site_info.get('speed_limit', 0),
+                                  site_info.get('ratio_threshold', 3.0),
+                                  site_info.get('seed_speed_limit', 5)))
                         else:  # SQLite
                             # 添加新站点
                             cursor.execute(
                                 """
                                 INSERT INTO sites
-                                (site, nickname, base_url, special_tracker_domain, "group", description, passkey, migration, speed_limit)
-                                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                (site, nickname, base_url, special_tracker_domain, "group", description, passkey, migration, speed_limit, ratio_threshold, seed_speed_limit)
+                                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                             """, (site_info.get('site'),
                                   site_info.get('nickname'),
                                   site_info.get('base_url'),
@@ -506,7 +567,9 @@ class DatabaseManager:
                                   site_info.get('description'),
                                   site_info.get('passkey'),
                                   site_info.get('migration', 0),
-                                  site_info.get('speed_limit', 0)))
+                                  site_info.get('speed_limit', 0),
+                                  site_info.get('ratio_threshold', 3.0),
+                                  site_info.get('seed_speed_limit', 5)))
                         added_count += 1
                         logging.debug(f"添加了新站点: {site_name}")
 
@@ -550,7 +613,7 @@ class DatabaseManager:
                 "CREATE TABLE IF NOT EXISTS torrent_upload_stats (hash VARCHAR(40) NOT NULL, downloader_id VARCHAR(36) NOT NULL, uploaded BIGINT DEFAULT 0, PRIMARY KEY (hash, downloader_id)) ENGINE=InnoDB ROW_FORMAT=Dynamic"
             )
             cursor.execute(
-                "CREATE TABLE IF NOT EXISTS `sites` (`id` mediumint NOT NULL AUTO_INCREMENT, `site` varchar(255) UNIQUE DEFAULT NULL, `nickname` varchar(255) DEFAULT NULL, `base_url` varchar(255) DEFAULT NULL, `special_tracker_domain` varchar(255) DEFAULT NULL, `group` varchar(255) DEFAULT NULL, `description` varchar(255) DEFAULT NULL, `cookie` TEXT DEFAULT NULL, `passkey` TEXT DEFAULT NULL, `migration` int(11) NOT NULL DEFAULT 1, `speed_limit` int(11) NOT NULL DEFAULT 0, PRIMARY KEY (`id`)) ENGINE=InnoDB ROW_FORMAT=DYNAMIC"
+                "CREATE TABLE IF NOT EXISTS `sites` (`id` mediumint NOT NULL AUTO_INCREMENT, `site` varchar(255) UNIQUE DEFAULT NULL, `nickname` varchar(255) DEFAULT NULL, `base_url` varchar(255) DEFAULT NULL, `special_tracker_domain` varchar(255) DEFAULT NULL, `group` varchar(255) DEFAULT NULL, `description` varchar(255) DEFAULT NULL, `cookie` TEXT DEFAULT NULL, `passkey` TEXT DEFAULT NULL, `migration` int(11) NOT NULL DEFAULT 1, `speed_limit` int(11) NOT NULL DEFAULT 0, `ratio_threshold` REAL NOT NULL DEFAULT 3.0, `seed_speed_limit` int(11) NOT NULL DEFAULT 5, PRIMARY KEY (`id`)) ENGINE=InnoDB ROW_FORMAT=DYNAMIC"
             )
             # 创建种子参数表，用于存储从源站点提取的种子参数
             cursor.execute(
@@ -576,7 +639,7 @@ class DatabaseManager:
                 "CREATE TABLE IF NOT EXISTS torrent_upload_stats (hash VARCHAR(40) NOT NULL, downloader_id VARCHAR(36) NOT NULL, uploaded BIGINT DEFAULT 0, PRIMARY KEY (hash, downloader_id))"
             )
             cursor.execute(
-                "CREATE TABLE IF NOT EXISTS sites (id SERIAL PRIMARY KEY, site VARCHAR(255) UNIQUE, nickname VARCHAR(255), base_url VARCHAR(255), special_tracker_domain VARCHAR(255), \"group\" VARCHAR(255), description VARCHAR(255), cookie TEXT, passkey TEXT, migration INTEGER NOT NULL DEFAULT 1, speed_limit INTEGER NOT NULL DEFAULT 0)"
+                "CREATE TABLE IF NOT EXISTS sites (id SERIAL PRIMARY KEY, site VARCHAR(255) UNIQUE, nickname VARCHAR(255), base_url VARCHAR(255), special_tracker_domain VARCHAR(255), \"group\" VARCHAR(255), description VARCHAR(255), cookie TEXT, passkey TEXT, migration INTEGER NOT NULL DEFAULT 1, speed_limit INTEGER NOT NULL DEFAULT 0, ratio_threshold REAL NOT NULL DEFAULT 3.0, seed_speed_limit INTEGER NOT NULL DEFAULT 5)"
             )
             # 创建种子参数表，用于存储从源站点提取的种子参数
             cursor.execute(
@@ -614,7 +677,7 @@ class DatabaseManager:
                 "CREATE TABLE IF NOT EXISTS torrent_upload_stats (hash TEXT NOT NULL, downloader_id TEXT NOT NULL, uploaded INTEGER DEFAULT 0, PRIMARY KEY (hash, downloader_id))"
             )
             cursor.execute(
-                "CREATE TABLE IF NOT EXISTS sites (id INTEGER PRIMARY KEY AUTOINCREMENT, site TEXT UNIQUE, nickname TEXT, base_url TEXT, special_tracker_domain TEXT, `group` TEXT, description TEXT, cookie TEXT, passkey TEXT, migration INTEGER NOT NULL DEFAULT 1, speed_limit INTEGER NOT NULL DEFAULT 0)"
+                "CREATE TABLE IF NOT EXISTS sites (id INTEGER PRIMARY KEY AUTOINCREMENT, site TEXT UNIQUE, nickname TEXT, base_url TEXT, special_tracker_domain TEXT, `group` TEXT, description TEXT, cookie TEXT, passkey TEXT, migration INTEGER NOT NULL DEFAULT 1, speed_limit INTEGER NOT NULL DEFAULT 0, ratio_threshold REAL NOT NULL DEFAULT 3.0, seed_speed_limit INTEGER NOT NULL DEFAULT 5)"
             )
             # 创建种子参数表，用于存储从源站点提取的种子参数
             cursor.execute(

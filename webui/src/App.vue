@@ -215,6 +215,18 @@ body {
   margin: 0;
   padding: 0;
 }
+
+/* 禁止 Element Plus 对话框滚动 */
+.el-overlay-dialog {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  overflow: hidden;
+}
+
+.el-overlay-dialog .el-dialog {
+  margin: 0;
+}
 </style>
 
 <style scoped>

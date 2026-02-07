@@ -221,8 +221,6 @@ def get_cross_seed_settings():
         cross_seed_config = config.get("cross_seed", {}) or {}
         cross_seed_config.setdefault("image_hoster", "pixhost")
         cross_seed_config.setdefault("default_downloader", "")
-        cross_seed_config.setdefault("reseed_speed_limit_ratio_threshold", 1.0)
-        cross_seed_config.setdefault("reseed_speed_limit_upload_mbps", 10)
         cross_seed_config.setdefault("publish_batch_concurrency_mode", "cpu")
         cross_seed_config.setdefault("publish_batch_concurrency_manual", 5)
         return jsonify(cross_seed_config)
@@ -254,20 +252,6 @@ def save_cross_seed_settings():
         if mode not in ("cpu", "manual", "all"):
             mode = "cpu"
         merged_settings["publish_batch_concurrency_mode"] = mode
-
-        ratio_threshold = merged_settings.get("reseed_speed_limit_ratio_threshold", 1.0)
-        try:
-            ratio_threshold = float(ratio_threshold)
-        except Exception:
-            ratio_threshold = 1.0
-        merged_settings["reseed_speed_limit_ratio_threshold"] = max(0.1, ratio_threshold)
-
-        speed_limit_mbps = merged_settings.get("reseed_speed_limit_upload_mbps", 10)
-        try:
-            speed_limit_mbps = int(float(speed_limit_mbps))
-        except Exception:
-            speed_limit_mbps = 10
-        merged_settings["reseed_speed_limit_upload_mbps"] = max(0, speed_limit_mbps)
 
         manual_value = merged_settings.get("publish_batch_concurrency_manual", 5)
         try:

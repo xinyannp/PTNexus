@@ -50,16 +50,16 @@ class ConfigManager:
                 "seedvault_password": "",
                 # [新增] 默认下载器设置
                 "default_downloader": "",
-                # [新增] 转种后限速阈值设置
-                "reseed_speed_limit_ratio_threshold": 1.0,
-                "reseed_speed_limit_upload_mbps": 10,
                 # [新增] 批量发布并发设置
                 # cpu: 按服务器 CPU 线程数 * 2；manual: 使用手动并发数；all: 并发等于目标站点数量
                 "publish_batch_concurrency_mode": "cpu",
                 "publish_batch_concurrency_manual": 5,
             },
             # --- [新增] 上传设置 ---
-            "upload_settings": {"anonymous_upload": True},  # 默认启用匿名上传
+            "upload_settings": {
+                "anonymous_upload": True,  # 默认启用匿名上传
+                "ratio_limiter_interval_seconds": 1800,  # 出种限速检测间隔（秒）
+            },
             # --- [新增] 下载器队列设置 ---
             "downloader_queue": {
                 "enabled": True,
@@ -139,10 +139,6 @@ class ConfigManager:
                         self._config["cross_seed"]["seedvault_email"] = ""
                     if "seedvault_password" not in self._config["cross_seed"]:
                         self._config["cross_seed"]["seedvault_password"] = ""
-                    if "reseed_speed_limit_ratio_threshold" not in self._config["cross_seed"]:
-                        self._config["cross_seed"]["reseed_speed_limit_ratio_threshold"] = 1.0
-                    if "reseed_speed_limit_upload_mbps" not in self._config["cross_seed"]:
-                        self._config["cross_seed"]["reseed_speed_limit_upload_mbps"] = 10
                     if "publish_batch_concurrency_mode" not in self._config["cross_seed"]:
                         self._config["cross_seed"]["publish_batch_concurrency_mode"] = "cpu"
                     if "publish_batch_concurrency_manual" not in self._config["cross_seed"]:
@@ -237,6 +233,8 @@ class ConfigManager:
                     # 如果已有 upload_settings，检查是否缺少新字段
                     if "anonymous_upload" not in self._config["upload_settings"]:
                         self._config["upload_settings"]["anonymous_upload"] = True
+                    if "ratio_limiter_interval_seconds" not in self._config["upload_settings"]:
+                        self._config["upload_settings"]["ratio_limiter_interval_seconds"] = 1800
 
             except (json.JSONDecodeError, IOError) as e:
                 logging.error(f"无法读取或解析 {CONFIG_FILE}: {e}。将加载一个安全的默认配置。")

@@ -103,6 +103,26 @@
             </div>
           </template>
         </el-table-column>
+        <el-table-column label="分享率阈值" width="110" align="center">
+          <template #default="scope">
+            <el-tag v-if="scope.row.ratio_threshold" size="small" type="warning">
+              ≥ {{ scope.row.ratio_threshold }}
+            </el-tag>
+            <span v-else>-</span>
+          </template>
+        </el-table-column>
+        <el-table-column label="出种限速" width="110" align="center">
+          <template #default="scope">
+            <el-tag
+              v-if="scope.row.ratio_threshold && scope.row.seed_speed_limit !== null"
+              size="small"
+              type="info"
+            >
+              {{ scope.row.seed_speed_limit }} MB/s
+            </el-tag>
+            <span v-else>-</span>
+          </template>
+        </el-table-column>
         <el-table-column label="Cookie" width="100" align="center">
           <template #default="scope">
             <el-tag v-if="scope.row.site === 'rousi'" type="info"> 无需配置 </el-tag>
@@ -155,7 +175,13 @@
     </div>
 
     <!-- 编辑站点对话框 -->
-    <el-dialog v-model="dialogVisible" title="编辑站点" width="700px" :close-on-click-modal="false">
+    <el-dialog
+      v-model="dialogVisible"
+      title="编辑站点"
+      width="700px"
+      :close-on-click-modal="false"
+      class="site-edit-dialog"
+    >
       <el-form :model="siteForm" ref="siteFormRef" label-width="140px" label-position="left">
         <el-form-item label="站点标识" prop="site" required>
           <el-input v-model="siteForm.site" placeholder="例如：pt" disabled></el-input>
@@ -212,13 +238,31 @@
             v-model="siteForm.speed_limit"
             :min="0"
             :max="1000"
-            placeholder="为防止失误操作导致超速，当设置为 0 时重启会自动设置为默认限速"
             style="width: 100%"
           />
-          <div class="form-tip" style="color: red; font-size: 14px">
-            单位为 MB/s，为防止误操作导致超速，当设置为 0 时重启会恢复默认限速<br />
-            如缺点设置不限速可输入一个极大的数值，超过 999 会显示不限速
+          <div class="form-tip" style="color: red; font-size: 12px">
+            填写 0 重启恢复默认；超过 999 显示不限速
           </div>
+        </el-form-item>
+        <el-form-item label="分享率阈值" prop="ratio_threshold">
+          <el-input-number
+            v-model="siteForm.ratio_threshold"
+            :min="1.2"
+            :max="100"
+            :step="0.1"
+            :precision="1"
+            style="width: 100%"
+          />
+          <div class="form-tip" style="font-size: 12px">默认 3.0，达到后触发出种限速</div>
+        </el-form-item>
+        <el-form-item label="出种限速 (MB/s)" prop="seed_speed_limit">
+          <el-input-number
+            v-model="siteForm.seed_speed_limit"
+            :min="0"
+            :max="1000"
+            style="width: 100%"
+          />
+          <div class="form-tip" style="color: #409eff; font-size: 12px">默认 5 MB/s</div>
         </el-form-item>
       </el-form>
       <template #footer>
@@ -270,6 +314,8 @@ const siteForm = ref({
   cookie: '',
   passkey: '',
   speed_limit: 0, // 前端显示和输入使用 MB/s 单位
+  ratio_threshold: 3.0,
+  seed_speed_limit: 5,
 })
 
 const API_BASE_URL = '/api'
@@ -457,6 +503,12 @@ const handleSaveAndSync = async () => {
 const handleOpenDialog = (site) => {
   // 统一使用MB/s单位
   const siteData = JSON.parse(JSON.stringify(site))
+  if (siteData.ratio_threshold === undefined || siteData.ratio_threshold === null) {
+    siteData.ratio_threshold = 3.0
+  }
+  if (siteData.seed_speed_limit === undefined || siteData.seed_speed_limit === null) {
+    siteData.seed_speed_limit = 5
+  }
   siteForm.value = siteData
   dialogVisible.value = true
 }
@@ -470,6 +522,14 @@ const handleSave = async () => {
     // 自动过滤掉cookie最后的换行符
     if (siteData.cookie) {
       siteData.cookie = siteData.cookie.trim()
+    }
+
+    if (siteData.ratio_threshold === '' || siteData.ratio_threshold === 0) {
+      siteData.ratio_threshold = 3.0
+    }
+
+    if (siteData.seed_speed_limit === '') {
+      siteData.seed_speed_limit = 5
     }
 
     const response = await axios.post(`${API_BASE_URL}/sites/update`, siteData)
@@ -543,6 +603,7 @@ const handleDelete = (site) => {
 
 .settings-view {
   flex-grow: 1;
+  min-height: 0;
   overflow: hidden;
   background-color: transparent;
 }
@@ -630,5 +691,16 @@ const handleDelete = (site) => {
   background-color: #fdf6ec;
   color: #e6a23c;
   border: 1px solid #f5dab1;
+}
+
+.site-edit-dialog :deep(.el-overlay-dialog) {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  overflow: hidden;
+}
+
+.site-edit-dialog :deep(.el-dialog) {
+  margin: 0;
 }
 </style>
