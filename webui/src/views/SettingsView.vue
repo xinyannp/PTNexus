@@ -39,7 +39,7 @@ const route = useRoute()
 
 <style scoped>
 .settings-container {
-  height: 100vh;
+  height: 100%;
 }
 
 .settings-aside {

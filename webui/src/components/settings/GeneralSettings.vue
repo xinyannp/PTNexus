@@ -491,21 +491,29 @@
 
         <div class="card-content">
           <el-form :model="settingsForm" label-position="top" class="settings-form">
-            <el-form-item label="默认下载器" class="form-item">
-              <el-select
-                v-model="settingsForm.default_downloader"
-                placeholder="请选择默认下载器"
-                clearable
-                @change="autoSaveCrossSeedSettings"
-              >
-                <el-option label="使用源种子所在的下载器" value="" />
-                <el-option
-                  v-for="item in downloaderOptions"
-                  :key="item.id"
-                  :label="item.name"
-                  :value="item.id"
-                />
-              </el-select>
+            <el-form-item class="form-item">
+              <div style="display: flex; align-items: center; gap: 12px; width: 100%">
+                <span
+                  style="font-weight: 500; color: var(--el-text-color-regular); font-size: 13px; white-space: nowrap"
+                >
+                  默认下载器
+                </span>
+                <el-select
+                  v-model="settingsForm.default_downloader"
+                  placeholder="使用源种子所在的下载器"
+                  clearable
+                  @change="autoSaveCrossSeedSettings"
+                  style="flex: 1; min-width: 0"
+                >
+                  <el-option label="使用源种子所在的下载器" value="" />
+                  <el-option
+                    v-for="item in downloaderOptions"
+                    :key="item.id"
+                    :label="item.name"
+                    :value="item.id"
+                  />
+                </el-select>
+              </div>
             </el-form-item>
 
             <div class="form-spacer"></div>
@@ -516,6 +524,33 @@
               </el-icon>
               发种完成后自动将种子添加到指定的下载器。选择"使用源种子所在的下载器"或不选择任何下载器，则添加到源种子所在的下载器。
             </el-text>
+
+            <el-form-item class="form-item">
+              <div
+                style="
+                  display: flex;
+                  align-items: center;
+                  justify-content: space-between;
+                  padding: 6px 0;
+                "
+              >
+                <span
+                  style="font-weight: 500; color: var(--el-text-color-regular); font-size: 13px; margin-right: 10px"
+                >
+                  目标站点已存在时是否添加到下载器
+                </span>
+                <el-switch
+                  v-model="settingsForm.auto_add_existing_to_downloader"
+                  @change="autoSaveCrossSeedSettings"
+                />
+              </div>
+              <el-text type="info" size="small" style="display: block">
+                <el-icon size="12" style="vertical-align: middle; margin-right: 4px">
+                  <InfoFilled />
+                </el-icon>
+                当目标站点"种子已存在"时，可选择是否继续添加到下载器。
+              </el-text>
+            </el-form-item>
 
             <div class="form-spacer"></div>
 
@@ -859,6 +894,7 @@ interface CrossSeedSettings {
   agsv_email?: string
   agsv_password?: string
   default_downloader?: string
+  auto_add_existing_to_downloader?: boolean
   publish_batch_concurrency_mode?: PublishBatchConcurrencyMode
   publish_batch_concurrency_manual?: number
 }
@@ -870,6 +906,7 @@ const settingsForm = reactive<CrossSeedSettings>({
   agsv_email: '',
   agsv_password: '',
   default_downloader: '',
+  auto_add_existing_to_downloader: true,
   publish_batch_concurrency_mode: 'cpu',
   publish_batch_concurrency_manual: 5,
 })
@@ -1054,6 +1091,7 @@ const autoSaveCrossSeedSettings = async () => {
       agsv_email: settingsForm.agsv_email,
       agsv_password: settingsForm.agsv_password,
       default_downloader: settingsForm.default_downloader,
+      auto_add_existing_to_downloader: settingsForm.auto_add_existing_to_downloader,
       publish_batch_concurrency_mode: settingsForm.publish_batch_concurrency_mode,
       publish_batch_concurrency_manual: settingsForm.publish_batch_concurrency_manual,
       // 同步带上 ptgen token，避免后端覆盖时丢失（后端已做 merge，但这里也保持完整）
@@ -1379,6 +1417,7 @@ const saveCrossSeedSettings = async () => {
       agsv_email: settingsForm.agsv_email,
       agsv_password: settingsForm.agsv_password,
       default_downloader: settingsForm.default_downloader,
+      auto_add_existing_to_downloader: settingsForm.auto_add_existing_to_downloader,
       publish_batch_concurrency_mode: settingsForm.publish_batch_concurrency_mode,
       publish_batch_concurrency_manual: settingsForm.publish_batch_concurrency_manual,
       cspt_ptgen_token: uploadForm.cspt_ptgen_token,
@@ -1438,6 +1477,7 @@ const saveUploadSettings = async () => {
       agsv_email: settingsForm.agsv_email,
       agsv_password: settingsForm.agsv_password,
       default_downloader: settingsForm.default_downloader,
+      auto_add_existing_to_downloader: settingsForm.auto_add_existing_to_downloader,
       cspt_ptgen_token: uploadForm.cspt_ptgen_token,
       publish_batch_concurrency_mode: settingsForm.publish_batch_concurrency_mode,
       publish_batch_concurrency_manual: settingsForm.publish_batch_concurrency_manual,
@@ -1539,9 +1579,29 @@ onMounted(() => {
 .settings-container {
   padding: 20px;
   background-color: transparent;
-  min-height: calc(100% - 40px);
   overflow-y: auto;
   height: 100%;
+  box-sizing: border-box;
+}
+
+/* 自定义滚动条样式 */
+.settings-container::-webkit-scrollbar {
+  width: 8px;
+}
+
+.settings-container::-webkit-scrollbar-track {
+  background: transparent;
+  border-radius: 4px;
+}
+
+.settings-container::-webkit-scrollbar-thumb {
+  background: rgba(144, 147, 153, 0.3);
+  border-radius: 4px;
+  transition: background 0.3s ease;
+}
+
+.settings-container::-webkit-scrollbar-thumb:hover {
+  background: rgba(144, 147, 153, 0.5);
 }
 
 .page-description {
@@ -1552,7 +1612,7 @@ onMounted(() => {
 
 .settings-grid {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
   gap: 20px;
 }
 
@@ -1781,12 +1841,6 @@ onMounted(() => {
 :deep(.el-select-dropdown__item) {
   height: 32px;
   font-size: 13px;
-}
-
-@media (max-width: 1200px) {
-  .settings-grid {
-    grid-template-columns: repeat(2, 1fr);
-  }
 }
 
 @media (max-width: 768px) {

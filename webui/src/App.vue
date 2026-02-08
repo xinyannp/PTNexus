@@ -73,7 +73,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, onMounted } from 'vue'
+import { computed, ref, onMounted, onUnmounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Link } from '@element-plus/icons-vue'
@@ -99,6 +99,15 @@ const activeRoute = computed(() => {
 
 const isRefreshing = ref(false)
 
+const isRefreshSupportedRoute = (path: string) => {
+  return (
+    path.startsWith('/torrents') ||
+    path.startsWith('/sites') ||
+    path.startsWith('/data') ||
+    path.startsWith('/batch-fetch')
+  )
+}
+
 // VersionUpdate组件引用
 const versionUpdateRef = ref()
 
@@ -108,40 +117,42 @@ const handleComponentReady = (refreshMethod: () => Promise<void>) => {
   activeComponentRefresher.value = refreshMethod
 }
 
+const shouldDelegateRefreshToComponent = (path: string) => {
+  return path.startsWith('/torrents')
+}
+
 const handleGlobalRefresh = async () => {
   if (isRefreshing.value) return
 
-  const topLevelPath = route.matched.length > 0 ? route.matched[0].path : ''
-
-  if (
-    topLevelPath === '/torrents' ||
-    topLevelPath === '/sites' ||
-    topLevelPath === '/data' ||
-    topLevelPath === '/batch-fetch'
-  ) {
-    isRefreshing.value = true
-    ElMessage.info('后台正在刷新缓存...')
-
-    try {
-      await axios.post('/api/refresh_data')
-
-      try {
-        if (activeComponentRefresher.value) {
-          await activeComponentRefresher.value()
-        }
-        ElMessage.success('数据已刷新！')
-      } catch (e: any) {
-        ElMessage.error(`数据更新失败: ${e.message}`)
-      } finally {
-        isRefreshing.value = false
-      }
-    } catch (e: any) {
-      ElMessage.error(e.message)
-      isRefreshing.value = false
-    }
-  } else {
+  if (!isRefreshSupportedRoute(route.path)) {
     ElMessage.warning('当前页面不支持刷新操作。')
+    return
   }
+
+  isRefreshing.value = true
+  ElMessage.info('后台正在刷新缓存...')
+
+  try {
+    if (shouldDelegateRefreshToComponent(route.path) && activeComponentRefresher.value) {
+      await activeComponentRefresher.value()
+    } else {
+      await axios.post('/api/refresh_data')
+      if (activeComponentRefresher.value) {
+        await activeComponentRefresher.value()
+      }
+    }
+
+    ElMessage.success('数据已刷新！')
+  } catch (e: any) {
+    ElMessage.error(e?.message || '数据更新失败')
+  } finally {
+    isRefreshing.value = false
+  }
+}
+
+const handleRefreshLoadingChange = (event: Event) => {
+  const customEvent = event as CustomEvent<{ refreshing?: boolean }>
+  isRefreshing.value = !!customEvent.detail?.refreshing
 }
 
 // 加载背景设置
@@ -186,6 +197,15 @@ const showVersionDialog = () => {
 onMounted(() => {
   loadBackgroundSettings()
   window.addEventListener('background-updated', handleBackgroundUpdate)
+  window.addEventListener('app-global-refresh-loading', handleRefreshLoadingChange as EventListener)
+})
+
+onUnmounted(() => {
+  window.removeEventListener('background-updated', handleBackgroundUpdate)
+  window.removeEventListener(
+    'app-global-refresh-loading',
+    handleRefreshLoadingChange as EventListener,
+  )
 })
 </script>
 

@@ -47,6 +47,33 @@ MIGRATION_CACHE_LOCK = threading.Lock()
 MIGRATION_TORRENT_FILE_LOCKS = {}
 
 INACTIVE_TORRENT_STATES = ("未做种", "已暂停", "已停止", "错误", "等待", "队列")
+EXISTING_TORRENT_HINTS = ("种子已存在", "该种子已存在")
+
+
+def _to_bool(value, default=False):
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return bool(value)
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in ("1", "true", "yes", "on"):
+            return True
+        if normalized in ("0", "false", "no", "off", ""):
+            return False
+    return default
+
+
+def _is_existing_torrent_publish_result(result: dict) -> bool:
+    if not isinstance(result, dict):
+        return False
+
+    logs = str(result.get("logs") or "")
+    message = str(result.get("message") or "")
+    content = f"{logs}\n{message}"
+    return any(hint in content for hint in EXISTING_TORRENT_HINTS)
 
 
 def get_seed_hash(db_manager, torrent_id, site_name):
@@ -210,8 +237,6 @@ def get_current_torrent_info(db_manager, torrent_name):
 # ===================================================================
 #                          转种设置 API (新整合)
 # ===================================================================
-
-
 @migrate_bp.route("/settings/cross_seed", methods=["GET"])
 def get_cross_seed_settings():
     """获取转种相关的设置。"""
@@ -221,6 +246,7 @@ def get_cross_seed_settings():
         cross_seed_config = config.get("cross_seed", {}) or {}
         cross_seed_config.setdefault("image_hoster", "pixhost")
         cross_seed_config.setdefault("default_downloader", "")
+        cross_seed_config.setdefault("auto_add_existing_to_downloader", True)
         cross_seed_config.setdefault("publish_batch_concurrency_mode", "cpu")
         cross_seed_config.setdefault("publish_batch_concurrency_manual", 5)
         return jsonify(cross_seed_config)
@@ -259,6 +285,14 @@ def save_cross_seed_settings():
         except Exception:
             manual_value = 5
         merged_settings["publish_batch_concurrency_manual"] = max(1, manual_value)
+
+        merged_settings["auto_add_existing_to_downloader"] = _to_bool(
+            merged_settings.get(
+                "auto_add_existing_to_downloader",
+                existing_settings.get("auto_add_existing_to_downloader", True),
+            ),
+            True,
+        )
 
         # 更新配置中的 cross_seed 部分
         current_config["cross_seed"] = merged_settings
@@ -1449,12 +1483,24 @@ def _migrate_publish_impl(db_manager, data):
 
         # 3. 如果发布成功，自动添加到下载器
         if result.get("success") and result.get("url"):
-            auto_add = data.get("auto_add_to_downloader", True)  # 默认自动添加
+            config = config_manager.get()
+            cross_seed_cfg = config.get("cross_seed", {}) or {}
+            auto_add = _to_bool(data.get("auto_add_to_downloader", True), True)
+            auto_add_existing_to_downloader = _to_bool(
+                data.get(
+                    "auto_add_existing_to_downloader",
+                    cross_seed_cfg.get("auto_add_existing_to_downloader", True),
+                ),
+                bool(cross_seed_cfg.get("auto_add_existing_to_downloader", True)),
+            )
+            is_existing_torrent = _is_existing_torrent_publish_result(result)
             print(f"[下载器添加] 发布成功, auto_add={auto_add}, url={result.get('url')}")
+            print(
+                f"[下载器添加] 已存在种子判定={is_existing_torrent}, 已存在是否自动添加={auto_add_existing_to_downloader}"
+            )
 
-            if auto_add:
-                config = config_manager.get()
-                default_downloader = config.get("cross_seed", {}).get("default_downloader")
+            if auto_add and (auto_add_existing_to_downloader or not is_existing_torrent):
+                default_downloader = cross_seed_cfg.get("default_downloader")
 
                 downloader_id = data.get("downloaderId") or data.get("downloader_id")
                 save_path = upload_data.get("save_path") or upload_data.get("savePath")
@@ -1571,7 +1617,12 @@ def _migrate_publish_impl(db_manager, data):
                         "message": f"缺少必要参数: {', '.join(missing)}",
                     }
             else:
-                print(f"[下载器添加] auto_add=False, 跳过自动添加")
+                if not auto_add:
+                    print(f"[下载器添加] auto_add=False, 跳过自动添加")
+                elif is_existing_torrent and not auto_add_existing_to_downloader:
+                    print("[下载器添加] 检测到目标站点种子已存在，按设置跳过自动添加")
+                else:
+                    print("[下载器添加] 跳过自动添加（原因未知）")
 
         # 处理批量转种记录（Go 端批量转种调用 /api/migrate/publish 时会传 batch_id）
         batch_id = data.get("batch_id")  # Go端传递的批次ID
@@ -2410,6 +2461,7 @@ def _process_publish_batch(
     source_site_name: str | None,
     downloader_id: str | None,
     auto_add_to_downloader: bool,
+    auto_add_existing_to_downloader: bool,
     concurrency: int,
     db_manager,
 ):
@@ -2517,6 +2569,7 @@ def _process_publish_batch(
                     "sourceSite": source_site_name,
                     "downloaderId": downloader_id,
                     "auto_add_to_downloader": auto_add_to_downloader,
+                    "auto_add_existing_to_downloader": auto_add_existing_to_downloader,
                 }
                 result, _status = _migrate_publish_impl(db_manager, payload)
             except Exception as e:
@@ -2585,11 +2638,19 @@ def migrate_publish_batch_start():
     target_sites = data.get("targetSites") or data.get("target_sites") or []
     source_site_name = data.get("sourceSite")
     downloader_id = data.get("downloaderId") or data.get("downloader_id")
-    auto_add_to_downloader = bool(data.get("auto_add_to_downloader", True))
+
+    cross_seed_cfg = config_manager.get().get("cross_seed", {}) or {}
+    auto_add_to_downloader = _to_bool(data.get("auto_add_to_downloader", True), True)
+    auto_add_existing_to_downloader = _to_bool(
+        data.get(
+            "auto_add_existing_to_downloader",
+            cross_seed_cfg.get("auto_add_existing_to_downloader", False),
+        ),
+        bool(cross_seed_cfg.get("auto_add_existing_to_downloader", False)),
+    )
 
     concurrency = data.get("concurrency")
     if concurrency is None:
-        cross_seed_cfg = config_manager.get().get("cross_seed", {}) or {}
         mode = data.get("concurrency_mode") or cross_seed_cfg.get(
             "publish_batch_concurrency_mode", "cpu"
         )
@@ -2658,6 +2719,7 @@ def migrate_publish_batch_start():
             "source_site_name": source_site_name,
             "downloader_id": downloader_id,
             "auto_add_to_downloader": auto_add_to_downloader,
+            "auto_add_existing_to_downloader": auto_add_existing_to_downloader,
             "concurrency": concurrency,
             "db_manager": migrate_bp.db_manager,
         },

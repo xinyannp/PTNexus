@@ -15,6 +15,7 @@
       v-if="settingsLoaded"
       :data="allData"
       v-loading="loading"
+      element-loading-text="正在刷新种子数据..."
       border
       height="100%"
       ref="tableRef"
@@ -728,7 +729,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, reactive, watch, nextTick, defineEmits, computed } from 'vue'
+import { ref, onMounted, onUnmounted, reactive, watch, nextTick, computed } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import type { TableInstance, Sort } from 'element-plus'
 import type { ElTree } from 'element-plus'
@@ -737,9 +738,12 @@ import CrossSeedPanel from '../components/CrossSeedPanel.vue'
 import SiteDataViewer from '../components/SiteDataViewer.vue'
 import { useCrossSeedStore } from '@/stores/crossSeed'
 import { useSiteDataStore } from '@/stores/siteData'
+import { useTorrentsViewState } from '@/stores/torrentsViewState'
 import type { ISourceInfo, Torrent, SiteData } from '@/types'
 
 const emits = defineEmits(['ready'])
+
+const torrentsViewState = useTorrentsViewState()
 
 interface OtherSite {
   name: string
@@ -775,12 +779,53 @@ interface Downloader {
 
 const tableRef = ref<TableInstance | null>(null)
 const loading = ref<boolean>(true)
+const refreshingBackendData = ref<boolean>(false)
 const allData = ref<Torrent[]>([])
 const error = ref<string | null>(null)
+
+const emitGlobalRefreshLoading = (refreshing: boolean) => {
+  window.dispatchEvent(
+    new CustomEvent('app-global-refresh-loading', {
+      detail: { refreshing },
+    }),
+  )
+}
+
+const refreshBackendAndReload = async () => {
+  if (refreshingBackendData.value) return
+
+  refreshingBackendData.value = true
+  loading.value = true
+  emitGlobalRefreshLoading(true)
+
+  try {
+    await axios.post('/api/refresh_data')
+  } catch (error) {
+    console.warn('种子数据刷新失败:', error)
+  }
+
+  try {
+    // 先获取下载器列表和站点状态，再获取数据
+    // 使用 forceRefresh = true 强制刷新缓存
+    await Promise.all([fetchDownloadersList(true), fetchAllSitesStatus(true)])
+    await fetchDataWithoutLoadingControl()
+  } finally {
+    loading.value = false
+    emitGlobalRefreshLoading(false)
+    refreshingBackendData.value = false
+  }
+}
+
+const fetchDataWithSpinner = async () => {
+  loading.value = true
+  await fetchData()
+}
 
 // --- [新增] 控制表格渲染的状态 ---
 const settingsLoaded = ref<boolean>(false)
 const isDevEnv = ref<boolean>(false)
+// 标记是否正在初始化，防止 watch 在初始化期间触发
+const isInitializing = ref<boolean>(true)
 
 const SAVE_PATH_MAX_COLUMN_WIDTH = 220
 const SAVE_PATH_MIN_COLUMN_WIDTH = 90
@@ -988,10 +1033,10 @@ const saveUiSettings = async () => {
   }
 }
 
-const loadUiSettings = async () => {
+// 从缓存或API加载UI设置
+const loadUiSettings = async (forceRefresh = false) => {
   try {
-    const response = await axios.get('/api/ui_settings')
-    const settings = response.data
+    const settings = await torrentsViewState.fetchUiSettings(forceRefresh)
     pageSize.value = settings.page_size ?? 50
     currentSort.value = {
       prop: settings.sort_prop || 'name',
@@ -1059,31 +1104,28 @@ const buildPathTree = (paths: string[]): PathNode[] => {
   return root
 }
 
-const fetchDownloadersList = async () => {
+// 从缓存或API加载下载器列表
+const fetchDownloadersList = async (forceRefresh = false) => {
   try {
-    const response = await axios.get('/api/all_downloaders')
-    const allDownloaders = response.data
-    // 只显示启用的下载器在筛选器中
-    downloadersList.value = allDownloaders.filter((d: any) => d.enabled)
-    // 保存所有下载器信息用于显示
-    allDownloadersList.value = allDownloaders
+    const result = await torrentsViewState.fetchDownloadersList(forceRefresh)
+    downloadersList.value = result.downloadersList
+    allDownloadersList.value = result.allDownloadersList
   } catch (e: any) {
     error.value = e.message
   }
 }
 
-const fetchAllSitesStatus = async () => {
+// 从缓存或API加载站点状态
+const fetchAllSitesStatus = async (forceRefresh = false) => {
   try {
-    const response = await axios.get('/api/sites/status')
-    const allSites = response.data
-    allSourceSitesStatus.value = allSites.filter((s: SiteStatus) => s.is_source)
+    allSourceSitesStatus.value = await torrentsViewState.fetchSitesStatus(forceRefresh)
   } catch (e: any) {
     error.value = (e as Error).message
   }
 }
 
-const fetchData = async () => {
-  loading.value = true
+// 内部数据获取函数，不控制 loading 状态（供 refreshBackendAndReload 使用）
+const fetchDataWithoutLoadingControl = async () => {
   error.value = null
   try {
     const params = new URLSearchParams({
@@ -1116,6 +1158,13 @@ const fetchData = async () => {
     pathTreeData.value = buildPathTree(result.unique_paths)
   } catch (e: any) {
     error.value = e.message
+  }
+}
+
+const fetchData = async () => {
+  loading.value = true
+  try {
+    await fetchDataWithoutLoadingControl()
   } finally {
     loading.value = false
   }
@@ -1155,10 +1204,9 @@ const openSiteDataViewer = (row: Torrent) => {
 }
 
 // 处理种子数据刷新
-const handleTorrentRefresh = () => {
+const handleTorrentRefresh = async () => {
   console.log('触发种子数据刷新')
-  // 重新加载种子数据
-  fetchData()
+  await refreshBackendAndReload()
 }
 
 // 查询缓存站点
@@ -1347,19 +1395,19 @@ const setSiteNotExist = async () => {
   }
 }
 
-const handleCrossSeedComplete = () => {
+const handleCrossSeedComplete = async () => {
   ElMessage.success('转种操作已完成！')
   crossSeedStore.reset()
   // 可选：刷新数据以显示最新状态
-  fetchData()
+  await refreshBackendAndReload()
 }
 
 // 处理带刷新的关闭事件（在步骤3点击关闭按钮时触发）
-const handleCloseWithRefresh = () => {
+const handleCloseWithRefresh = async () => {
   ElMessage.success('转种操作已完成！')
   crossSeedStore.reset()
   // 刷新数据以显示最新状态
-  fetchData()
+  await refreshBackendAndReload()
 }
 
 const getSiteDetails = (siteName: string) => {
@@ -1536,22 +1584,23 @@ const triggerIYUUQueryForFiltered = async () => {
 
 onUnmounted(() => {
   stopIyuuBatchPolling()
+  emitGlobalRefreshLoading(false)
 })
 
 const handleSizeChange = (val: number) => {
   pageSize.value = val
   currentPage.value = 1
-  fetchData()
+  fetchDataWithSpinner()
   saveUiSettings()
 }
 const handleCurrentChange = (val: number) => {
   currentPage.value = val
-  fetchData()
+  fetchDataWithSpinner()
 }
 const handleSortChange = (sort: Sort) => {
   currentSort.value = sort
   currentPage.value = 1
-  fetchData()
+  fetchDataWithSpinner()
   saveUiSettings()
 }
 
@@ -1575,7 +1624,7 @@ const applyFilters = async () => {
   Object.assign(activeFilters, tempFilters)
   filterDialogVisible.value = false
   currentPage.value = 1
-  await fetchData()
+  await fetchDataWithSpinner()
   saveUiSettings()
 }
 
@@ -1664,7 +1713,7 @@ const clearAllFilters = async () => {
 
   // 重置到第一页并获取数据
   currentPage.value = 1
-  await fetchData()
+  await fetchDataWithSpinner()
   saveUiSettings()
 }
 
@@ -1815,45 +1864,42 @@ const tableRowClassName = ({ row }: { row: Torrent }) => {
   return expandedRows.value.includes(row.unique_id) ? 'expanded-row' : ''
 }
 
-// --- [修改] onMounted 启动逻辑 ---
-// 添加会话存储键名，用于跟踪是否是首次加载
-const FIRST_LOAD_KEY = 'torrents_view_first_load'
-
 onMounted(async () => {
-  // 检查是否是首次加载（首次打开页面或刷新浏览器）
-  const isFirstLoad = !sessionStorage.getItem(FIRST_LOAD_KEY)
+  // 标记正在初始化，防止 watch 触发额外请求
+  isInitializing.value = true
 
-  // 1. 先加载保存的UI设置
-  await loadUiSettings()
-  // 2. loadUiSettings 会设置 settingsLoaded=true，此时表格才会被渲染
-  // 3. 使用加载好的设置去获取数据
-  fetchData()
+  // 1. 立即开始显示 loading 动画，防止在加载设置后、刷新数据前出现短暂的无动画状态
+  loading.value = true
+  emitGlobalRefreshLoading(true)
 
-  // 4. 只在首次加载时触发种子数据刷新
-  if (isFirstLoad) {
-    try {
-      console.log('首次加载页面，触发种子数据刷新...')
-      await axios.post('/api/refresh_data')
-      console.log('种子数据刷新完成，重新获取数据...')
-      // 刷新完成后重新获取数据
-      await fetchData()
-    } catch (error) {
-      console.warn('页面加载时种子数据刷新失败:', error)
-      // 刷新失败不影响正常显示
-    }
-    // 标记已加载过，避免重复刷新
-    sessionStorage.setItem(FIRST_LOAD_KEY, 'loaded')
+  // 2. 根据是否是首次进入决定刷新方式
+  if (!torrentsViewState.hasInitializedOnce) {
+    // 首次进入页面：强制刷新所有数据（调用后端刷新接口）
+    // 先加载 UI 设置（强制刷新）
+    await loadUiSettings(true)
+    // 然后执行完整刷新
+    await refreshBackendAndReload()
+    torrentsViewState.setInitialized()
   } else {
-    console.log('页面已加载过，跳过种子数据刷新')
+    // 非首次进入：使用缓存数据，不调用 API
+    // 从缓存加载 UI 设置
+    await loadUiSettings(false)
+    // 从缓存加载下载器和站点状态
+    await Promise.all([fetchDownloadersList(false), fetchAllSitesStatus(false)])
+    // 只获取种子数据（这个不缓存，每次都需要获取）
+    await fetchDataWithoutLoadingControl()
+    loading.value = false
+    emitGlobalRefreshLoading(false)
   }
 
-  // 5. 执行其他初始化
-  fetchDownloadersList()
-  fetchAllSitesStatus()
-  emits('ready', fetchData)
+  // 3. 将刷新方法注册给 App 顶部全局刷新按钮
+  emits('ready', refreshBackendAndReload)
 
   // 检查开发环境
   checkDevEnv()
+
+  // 初始化完成，允许 watch 触发
+  isInitializing.value = false
 })
 
 const checkDevEnv = () => {
@@ -1861,8 +1907,10 @@ const checkDevEnv = () => {
 }
 
 watch(nameSearch, () => {
+  // 在初始化期间跳过，避免 loadUiSettings 修改 nameSearch 时触发
+  if (isInitializing.value) return
   currentPage.value = 1
-  fetchData()
+  fetchDataWithSpinner()
   saveUiSettings()
 })
 // 移除旧的监听器，现在不需要根据siteExistence值清空siteNames

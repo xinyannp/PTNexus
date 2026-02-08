@@ -810,10 +810,39 @@
         </el-alert>
 
         <div class="select-all-container" style="margin-top: 16px">
-          <el-button-group>
-            <el-button type="primary" @click="selectAllTargetSites">全选</el-button>
-            <el-button type="info" @click="clearAllTargetSites">清空</el-button>
-          </el-button-group>
+          <div
+            style="
+              display: flex;
+              align-items: center;
+              justify-content: center;
+              position: relative;
+            "
+          >
+            <div style="position: absolute; left: 50%; transform: translateX(-50%)">
+              <el-button-group>
+                <el-button type="primary" @click="selectAllTargetSites">全选</el-button>
+                <el-button type="info" @click="clearAllTargetSites">清空</el-button>
+              </el-button-group>
+            </div>
+            <div
+              style="
+                display: flex;
+                align-items: center;
+                gap: 12px;
+                margin-left: calc(50% + 70px);
+              "
+            >
+              <span
+                style="font-weight: 500; color: var(--el-text-color-regular); font-size: 13px"
+              >
+                目标站点已存在时是否添加到下载器
+              </span>
+              <el-switch
+                v-model="autoAddExistingToDownloader"
+                @change="saveAutoAddExistingSetting"
+              />
+            </div>
+          </div>
         </div>
         <div class="site-buttons-group">
           <el-button
@@ -1521,6 +1550,7 @@ const removeScrollListener = () => {
 // 在组件挂载时添加监听器
 onMounted(() => {
   fetchSitesStatus()
+  fetchCrossSeedSettings()
   fetchTorrentInfo()
 
   // 在下一个tick添加滚动监听器，确保DOM已经渲染
@@ -1553,6 +1583,7 @@ const steps = [
 ]
 const allSitesStatus = ref<SiteStatus[]>([])
 const selectedTargetSites = ref<string[]>([])
+const autoAddExistingToDownloader = ref(false)
 const isLoading = ref(false)
 const torrentData = ref(getInitialTorrentData())
 const taskId = ref<string | null>(null)
@@ -2592,6 +2623,26 @@ const fetchSitesStatus = async () => {
     downloaderList.value = downloaderResponse.data
   } catch (error) {
     ElNotification.error({ title: '错误', message: '无法从服务器获取站点状态列表或下载器列表' })
+  }
+}
+
+const fetchCrossSeedSettings = async () => {
+  try {
+    const response = await axios.get('/api/settings/cross_seed')
+    autoAddExistingToDownloader.value = !!response.data?.auto_add_existing_to_downloader
+  } catch (error) {
+    console.warn('获取发种设置失败:', error)
+  }
+}
+
+const saveAutoAddExistingSetting = async () => {
+  try {
+    await axios.post('/api/settings/cross_seed', {
+      auto_add_existing_to_downloader: autoAddExistingToDownloader.value,
+    })
+  } catch (error) {
+    console.warn('保存发种设置失败:', error)
+    ElNotification.error({ title: '错误', message: '保存设置失败' })
   }
 }
 
@@ -3663,6 +3714,7 @@ const handlePublishBatch = async (): Promise<boolean> => {
       sourceSite: sourceSite.value,
       downloaderId: torrent.value.downloaderId,
       auto_add_to_downloader: true,
+      auto_add_existing_to_downloader: autoAddExistingToDownloader.value,
     })
 
     if (!startResponse.data?.success || !startResponse.data?.batch_id) {
@@ -3835,6 +3887,7 @@ const handlePublishSerial = async () => {
         sourceSite: sourceSite.value,
         downloaderId: torrent.value.downloaderId, // 新增：传递下载器ID
         auto_add_to_downloader: true, // 新增：启用自动添加
+        auto_add_existing_to_downloader: autoAddExistingToDownloader.value,
       })
 
       const result = {
@@ -5688,6 +5741,14 @@ const filterUploadedParam = (url: string): string => {
 
 .select-all-container {
   margin-bottom: 24px;
+}
+
+.site-selection-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  flex-wrap: wrap;
 }
 
 .site-buttons-group {
