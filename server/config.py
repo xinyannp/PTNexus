@@ -240,6 +240,11 @@ class ConfigManager:
                     if "ratio_limiter_interval_seconds" not in self._config["upload_settings"]:
                         self._config["upload_settings"]["ratio_limiter_interval_seconds"] = 1800
 
+                # --- [新增] 下载器出种限速开关配置兼容 ---
+                for downloader in self._config.get("downloaders", []):
+                    if "enable_ratio_limiter" not in downloader:
+                        downloader["enable_ratio_limiter"] = False  # 默认关闭
+
             except (json.JSONDecodeError, IOError) as e:
                 logging.error(f"无法读取或解析 {CONFIG_FILE}: {e}。将加载一个安全的默认配置。")
                 self._config = default_conf

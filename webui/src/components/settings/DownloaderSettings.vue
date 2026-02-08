@@ -91,19 +91,8 @@
               </el-select>
             </div>
           </el-form-item>
-          <el-form-item label="代理设置">
+          <el-form-item label="盒子端口">
             <div class="proxy-settings-row">
-              <el-input
-                v-model="downloader.proxy_port"
-                type="number"
-                placeholder="9090"
-                class="proxy-port-input"
-                :min="1"
-                :max="65535"
-                @input="resetConnectionStatus(downloader.id)"
-              >
-                <template #prepend>端口</template>
-              </el-input>
               <el-tooltip
                 :content="
                   downloader.type === 'transmission'
@@ -113,14 +102,42 @@
                 placement="top"
                 :hide-after="0"
               >
-                <el-switch
-                  v-model="downloader.use_proxy"
-                  size="large"
-                  inline-prompt
-                  active-text="远程"
-                  inactive-text="本地"
-                  @change="resetConnectionStatus(downloader.id)"
-                />
+                <el-input
+                  v-model="downloader.proxy_port"
+                  type="number"
+                  placeholder="9090"
+                  class="proxy-port-input"
+                  :min="1"
+                  :max="65535"
+                  @input="resetConnectionStatus(downloader.id)"
+                >
+                  <template #append>
+                    <div class="input-append-wrapper">
+                      <el-switch
+                        v-model="downloader.use_proxy"
+                        inline-prompt
+                        active-text="远程"
+                        inactive-text="本地"
+                        @change="resetConnectionStatus(downloader.id)"
+                      />
+                    </div>
+                  </template>
+                </el-input>
+              </el-tooltip>
+              <el-tooltip
+                content="开启后，此下载器将参与基于站点分享率阈值的出种限速"
+                placement="top"
+                :hide-after="0"
+              >
+                <span class="ratio-limiter-label">
+                  <span class="ratio-limiter-text">出种限速</span>
+                  <el-switch
+                    v-model="downloader.enable_ratio_limiter"
+                    inline-prompt
+                    active-text="开"
+                    inactive-text="关"
+                  />
+                </span>
               </el-tooltip>
             </div>
           </el-form-item>
@@ -240,6 +257,8 @@ const fetchSettings = async () => {
         if (!d.path_mappings || !Array.isArray(d.path_mappings)) {
           d.path_mappings = []
         }
+        // 初始化出种限速开关（默认关闭）
+        if (typeof d.enable_ratio_limiter !== 'boolean') d.enable_ratio_limiter = false
       })
       settings.value = response.data
     }
@@ -277,6 +296,7 @@ const addDownloader = () => {
     use_proxy: false,
     proxy_port: 9090,
     path_mappings: [], // 初始化空的路径映射数组
+    enable_ratio_limiter: false, // 默认关闭出种限速
   })
 }
 
@@ -395,9 +415,29 @@ const savePathMappings = async () => {
   background-color: transparent;
 }
 
+/* 自定义滚动条样式 */
+.settings-view::-webkit-scrollbar {
+  width: 8px;
+}
+
+.settings-view::-webkit-scrollbar-track {
+  background: transparent;
+  border-radius: 4px;
+}
+
+.settings-view::-webkit-scrollbar-thumb {
+  background: rgba(144, 147, 153, 0.3);
+  border-radius: 4px;
+  transition: background 0.3s ease;
+}
+
+.settings-view::-webkit-scrollbar-thumb:hover {
+  background: rgba(144, 147, 153, 0.5);
+}
+
 .downloader-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(380px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
   gap: 24px;
 }
 
@@ -439,11 +479,68 @@ const savePathMappings = async () => {
   align-items: center;
   width: 100%;
   gap: 12px;
+  min-height: 32px;
 }
 
 .proxy-port-input {
   flex: 1;
-  /* 占据剩余空间 */
+}
+
+.proxy-port-input :deep(.el-input__wrapper) {
+  height: 32px;
+}
+
+.proxy-port-input :deep(input[type="number"]) {
+  -moz-appearance: textfield;
+}
+
+.proxy-port-input :deep(input[type="number"]::-webkit-inner-spin-button),
+.proxy-port-input :deep(input[type="number"]::-webkit-outer-spin-button) {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+.proxy-port-input :deep(.el-input-group__append) {
+  padding: 0 5px;
+}
+
+.proxy-port-input :deep(.el-input-group__prepend) {
+  padding: 0 5px;
+}
+
+.input-append-wrapper {
+  display: flex;
+  align-items: center;
+  padding: 0 2px !important;
+  height: 100%;
+}
+
+.input-append-wrapper :deep(.el-switch) {
+  margin: 0;
+}
+
+.input-append-wrapper :deep(.el-switch__core) {
+  min-width: 36px;
+  height: 20px;
+}
+
+.input-append-wrapper :deep(.el-switch__label) {
+  font-size: 11px;
+  padding: 0 2px;
+}
+
+.ratio-limiter-label {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  height: 32px;
+}
+
+.ratio-limiter-text {
+  color: #606266;
+  white-space: nowrap;
 }
 
 .switch-form-item {

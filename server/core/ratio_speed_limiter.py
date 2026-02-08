@@ -67,7 +67,10 @@ class RatioSpeedLimiter(Thread):
             return
 
         config = self.config_manager.get() or {}
-        downloaders = [d for d in config.get("downloaders", []) if d.get("enabled")]
+        downloaders = [
+            d for d in config.get("downloaders", [])
+            if d.get("enabled") and d.get("enable_ratio_limiter", False)
+        ]
 
         total = 0
         matched = 0

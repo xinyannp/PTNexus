@@ -125,6 +125,8 @@ genre_options_by_type:
     - 艺术
     - 其它
   animation:
+    - 剧情
+    - 动画
     - 热血
     - 冒险
     - 搞笑
