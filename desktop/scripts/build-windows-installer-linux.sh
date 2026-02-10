@@ -10,6 +10,14 @@ PYTHON_EMBED_VERSION="${PYTHON_EMBED_VERSION:-3.12.8}"
 PYTHON_EMBED_ZIP="python-${PYTHON_EMBED_VERSION}-embed-amd64.zip"
 PYTHON_EMBED_URL="https://www.python.org/ftp/python/${PYTHON_EMBED_VERSION}/${PYTHON_EMBED_ZIP}"
 WHEEL_DIR="$CACHE_DIR/wheels-py312"
+FFMPEG_ARCHIVE="ffmpeg-n8.0.1-56-g3201cd40a4-win64-gpl-8.0.zip"
+FFMPEG_URL="https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-2026-02-10-13-08/${FFMPEG_ARCHIVE}"
+FFMPEG_SHA256="01aebfcdbbcf83d512c1edc960eb62a6ce5f56df2e35fb3643582f78ace5f39f"
+MPV_ARCHIVE="mpv-0.41.0-x86_64.7z"
+MPV_URL="https://downloads.sourceforge.net/project/mpv-player-windows/release/${MPV_ARCHIVE}"
+MPV_SHA256="ef86fde0959d789d77a3ad7c3c2dca51c6999695363f493a6154f2c518634c0f"
+SEVEN_ZR_EXE_URL="https://www.7-zip.org/a/7zr.exe"
+SEVEN_ZR_EXE_SHA256="27cbe3d5804ad09e90bbcaa916da0d5c3b0be9462d0e0fb6cb54be5ed9030875"
 
 log() {
   echo "[build-win-linux] $*"
@@ -178,6 +186,7 @@ download_and_extract_windows_wheels() {
   python3 - <<PY
 import zipfile
 from pathlib import Path
+
 wheel_dir = Path(r"$WHEEL_DIR")
 site_packages = Path(r"$site_packages")
 wheels = sorted(wheel_dir.glob("*.whl"))
@@ -197,6 +206,110 @@ if missing:
 
 print(f"extracted_wheels={len(wheels)}")
 PY
+}
+
+prepare_windows_media_tools() {
+  local tools_root="$RUNTIME_DIR/server/tools"
+  local ffmpeg_zip="$CACHE_DIR/$FFMPEG_ARCHIVE"
+  local mpv_7z="$CACHE_DIR/$MPV_ARCHIVE"
+  local extract_root="$CACHE_DIR/extracted-media"
+  local py7zr_venv="$CACHE_DIR/py7zr-venv"
+  local py7zr_python="$py7zr_venv/bin/python"
+
+  mkdir -p "$CACHE_DIR"
+
+  if [[ ! -f "$ffmpeg_zip" ]]; then
+    log "下载 Windows FFmpeg: $FFMPEG_ARCHIVE"
+    curl -fL "$FFMPEG_URL" -o "$ffmpeg_zip"
+  fi
+
+  local ffmpeg_actual_sha
+  ffmpeg_actual_sha="$(sha256sum "$ffmpeg_zip" | awk '{print $1}')"
+  if [[ "$ffmpeg_actual_sha" != "$FFMPEG_SHA256" ]]; then
+    echo "FFmpeg SHA256 校验失败: 期望 $FFMPEG_SHA256, 实际 $ffmpeg_actual_sha"
+    exit 1
+  fi
+
+  if [[ ! -f "$mpv_7z" ]]; then
+    log "下载 Windows MPV: $MPV_ARCHIVE"
+    curl -fL "$MPV_URL" -o "$mpv_7z"
+  fi
+
+  local mpv_actual_sha
+  mpv_actual_sha="$(sha256sum "$mpv_7z" | awk '{print $1}')"
+  if [[ "$mpv_actual_sha" != "$MPV_SHA256" ]]; then
+    echo "MPV SHA256 校验失败: 期望 $MPV_SHA256, 实际 $mpv_actual_sha"
+    exit 1
+  fi
+
+  if [[ ! -x "$py7zr_python" ]]; then
+    log "创建 py7zr 独立虚拟环境"
+    python3 -m venv "$py7zr_venv"
+  fi
+
+  if ! "$py7zr_python" -c "import py7zr" >/dev/null 2>&1; then
+    log "安装 py7zr 到独立虚拟环境"
+    "$py7zr_python" -m pip install --disable-pip-version-check py7zr
+  fi
+
+  rm -rf "$extract_root" "$tools_root"
+  mkdir -p "$extract_root" "$tools_root"
+
+  log "解压并注入 Windows 媒体工具"
+  "$py7zr_python" - <<PY
+import shutil
+import zipfile
+from pathlib import Path
+
+import py7zr
+
+ffmpeg_zip = Path(r"$ffmpeg_zip")
+mpv_7z = Path(r"$mpv_7z")
+extract_root = Path(r"$extract_root")
+tools_root = Path(r"$tools_root")
+
+ffmpeg_extract = extract_root / "ffmpeg"
+ffmpeg_extract.mkdir(parents=True, exist_ok=True)
+with zipfile.ZipFile(ffmpeg_zip) as zf:
+    zf.extractall(ffmpeg_extract)
+
+top_dirs = [p for p in ffmpeg_extract.iterdir() if p.is_dir()]
+if len(top_dirs) != 1:
+    raise SystemExit(f"FFmpeg 解压结构异常: {top_dirs}")
+
+ffmpeg_bin = top_dirs[0] / "bin"
+if not (ffmpeg_bin / "ffmpeg.exe").exists() or not (ffmpeg_bin / "ffprobe.exe").exists():
+    raise SystemExit("FFmpeg bin 目录缺少 ffmpeg.exe 或 ffprobe.exe")
+
+ffmpeg_dst = tools_root / "ffmpeg" / "bin"
+ffmpeg_dst.parent.mkdir(parents=True, exist_ok=True)
+if ffmpeg_dst.exists():
+    shutil.rmtree(ffmpeg_dst)
+shutil.copytree(ffmpeg_bin, ffmpeg_dst)
+
+mpv_extract = extract_root / "mpv"
+mpv_extract.mkdir(parents=True, exist_ok=True)
+with py7zr.SevenZipFile(mpv_7z, mode="r") as zf:
+    zf.extractall(path=mpv_extract)
+
+mpv_candidates = sorted(mpv_extract.rglob("mpv.exe"))
+if not mpv_candidates:
+    raise SystemExit("MPV 解压后未找到 mpv.exe")
+
+mpv_dst_dir = tools_root / "mpv"
+mpv_dst_dir.mkdir(parents=True, exist_ok=True)
+shutil.copy2(mpv_candidates[0], mpv_dst_dir / "mpv.exe")
+PY
+
+  if [[ ! -f "$tools_root/ffmpeg/bin/ffmpeg.exe" || ! -f "$tools_root/ffmpeg/bin/ffprobe.exe" ]]; then
+    echo "FFmpeg 工具注入失败，缺少 ffmpeg.exe 或 ffprobe.exe"
+    exit 1
+  fi
+
+  if [[ ! -f "$tools_root/mpv/mpv.exe" ]]; then
+    echo "MPV 工具注入失败，缺少 mpv.exe"
+    exit 1
+  fi
 }
 
 ensure_nsis_local() {
@@ -274,6 +387,9 @@ build_runtime() {
   log "安装 Windows Python 依赖"
   download_and_extract_windows_wheels
 
+  log "准备 Windows 媒体工具 (mpv/ffmpeg)"
+  prepare_windows_media_tools
+
   log "准备版本文件"
   cp "$ROOT_DIR/CHANGELOG.json" "$DESKTOP_DIR/CHANGELOG.json"
 }
@@ -332,6 +448,7 @@ main() {
   require_cmd go
   require_cmd python3
   require_cmd curl
+  require_cmd sha256sum
   require_cmd apt
   require_cmd dpkg-deb
 
