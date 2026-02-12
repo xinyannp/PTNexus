@@ -145,8 +145,16 @@ if (-not $SkipWeb) {
 Write-Host "[3/7] 复制 server 资源..."
 Copy-Item -Force (Join-Path $Root "server/sites_data.json") (Join-Path $RuntimeServer "sites_data.json")
 Copy-Item -Recurse -Force (Join-Path $Root "server/configs") (Join-Path $RuntimeServer "configs")
+
+$RuntimeBdinfoRoot = Join-Path $RuntimeServer "core/bdinfo"
 if (Test-Path (Join-Path $Root "server/core/bdinfo")) {
-  Copy-Item -Recurse -Force (Join-Path $Root "server/core/bdinfo") (Join-Path $RuntimeServer "bdinfo")
+  Ensure-Dir (Join-Path $RuntimeServer "core")
+  Copy-Item -Recurse -Force (Join-Path $Root "server/core/bdinfo") (Join-Path $RuntimeServer "core")
+}
+
+# 仅保留 Windows BDInfo 工具，避免把 Linux 大文件打进 Windows 安装包
+if (Test-Path (Join-Path $RuntimeBdinfoRoot "linux")) {
+  Remove-Item -Recurse -Force (Join-Path $RuntimeBdinfoRoot "linux")
 }
 
 Prepare-WindowsMediaTools
@@ -204,6 +212,11 @@ if (-not $SkipPython) {
   Copy-Item -Recurse -Force (Join-Path $RuntimeServer "_dist/server/*") $RuntimeServer
   Copy-Item -Recurse -Force (Join-Path $RuntimeServer "_dist/background_runner/*") $RuntimeServer
   Remove-Item -Recurse -Force (Join-Path $RuntimeServer "_dist")
+
+  # 防止 PyInstaller 产物再次带入 Linux 版 BDInfo 大文件
+  if (Test-Path (Join-Path $RuntimeBdinfoRoot "linux")) {
+    Remove-Item -Recurse -Force (Join-Path $RuntimeBdinfoRoot "linux")
+  }
 
   Pop-Location
 }

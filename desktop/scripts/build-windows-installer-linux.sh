@@ -206,13 +206,50 @@ print(f"extracted_wheels={len(wheels)}")
 PY
 }
 
+
+pack_python_runtime_zip() {
+  local py_root="$RUNTIME_DIR/server/python"
+  local py_zip="$RUNTIME_DIR/server/python.zip"
+
+  if [[ ! -d "$py_root" ]]; then
+    echo "未找到 Python 运行时目录: $py_root"
+    exit 1
+  fi
+
+  log "压缩 Python 运行时为单文件资源（降低 Tauri 构建内存占用）"
+  rm -f "$py_zip"
+
+  python3 - <<PY
+import zipfile
+from pathlib import Path
+
+py_root = Path(r"$py_root")
+py_zip = Path(r"$py_zip")
+
+with zipfile.ZipFile(py_zip, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=6) as zf:
+    for path in sorted(py_root.rglob("*")):
+        if path.is_file():
+            zf.write(path, path.relative_to(py_root))
+
+print(f"python_zip_size_bytes={py_zip.stat().st_size}")
+PY
+
+  rm -rf "$py_root"
+
+  if [[ ! -f "$py_zip" ]]; then
+    echo "Python 运行时压缩失败：未生成 $py_zip"
+    exit 1
+  fi
+}
+
 prepare_windows_media_tools() {
   local tools_root="$RUNTIME_DIR/server/tools"
   local ffmpeg_zip="$CACHE_DIR/$FFMPEG_ARCHIVE"
   local mpv_7z="$CACHE_DIR/$MPV_ARCHIVE"
   local extract_root="$CACHE_DIR/extracted-media"
-  local py7zr_venv="$CACHE_DIR/py7zr-venv"
-  local py7zr_python="$py7zr_venv/bin/python"
+  local sevenz_bin
+
+  sevenz_bin="$(ensure_7zip_local)"
 
   mkdir -p "$CACHE_DIR"
 
@@ -240,29 +277,15 @@ prepare_windows_media_tools() {
     exit 1
   fi
 
-  if [[ ! -x "$py7zr_python" ]]; then
-    log "创建 py7zr 独立虚拟环境"
-    python3 -m venv "$py7zr_venv"
-  fi
-
-  if ! "$py7zr_python" -c "import py7zr" >/dev/null 2>&1; then
-    log "安装 py7zr 到独立虚拟环境"
-    "$py7zr_python" -m pip install --disable-pip-version-check py7zr
-  fi
-
   rm -rf "$extract_root" "$tools_root"
   mkdir -p "$extract_root" "$tools_root"
 
-  log "解压并注入 Windows 媒体工具"
-  "$py7zr_python" - <<PY
-import shutil
+  log "解压并注入 Windows FFmpeg"
+  python3 - <<PY
 import zipfile
 from pathlib import Path
 
-import py7zr
-
 ffmpeg_zip = Path(r"$ffmpeg_zip")
-mpv_7z = Path(r"$mpv_7z")
 extract_root = Path(r"$extract_root")
 tools_root = Path(r"$tools_root")
 
@@ -282,22 +305,23 @@ if not (ffmpeg_bin / "ffmpeg.exe").exists() or not (ffmpeg_bin / "ffprobe.exe").
 ffmpeg_dst = tools_root / "ffmpeg" / "bin"
 ffmpeg_dst.parent.mkdir(parents=True, exist_ok=True)
 if ffmpeg_dst.exists():
+    import shutil
     shutil.rmtree(ffmpeg_dst)
+import shutil
 shutil.copytree(ffmpeg_bin, ffmpeg_dst)
-
-mpv_extract = extract_root / "mpv"
-mpv_extract.mkdir(parents=True, exist_ok=True)
-with py7zr.SevenZipFile(mpv_7z, mode="r") as zf:
-    zf.extractall(path=mpv_extract)
-
-mpv_candidates = sorted(mpv_extract.rglob("mpv.exe"))
-if not mpv_candidates:
-    raise SystemExit("MPV 解压后未找到 mpv.exe")
-
-mpv_dst_dir = tools_root / "mpv"
-mpv_dst_dir.mkdir(parents=True, exist_ok=True)
-shutil.copy2(mpv_candidates[0], mpv_dst_dir / "mpv.exe")
 PY
+
+  log "使用本地 7z 解压 MPV"
+  mkdir -p "$extract_root/mpv" "$tools_root/mpv"
+  "$sevenz_bin" x "$mpv_7z" "-o$extract_root/mpv" -y >/dev/null
+
+  local mpv_source
+  mpv_source="$(find "$extract_root/mpv" -type f -iname 'mpv.exe' | head -n1 || true)"
+  if [[ -z "$mpv_source" ]]; then
+    echo "MPV 解压后未找到 mpv.exe"
+    exit 1
+  fi
+  cp -f "$mpv_source" "$tools_root/mpv/mpv.exe"
 
   if [[ ! -f "$tools_root/ffmpeg/bin/ffmpeg.exe" || ! -f "$tools_root/ffmpeg/bin/ffprobe.exe" ]]; then
     echo "FFmpeg 工具注入失败，缺少 ffmpeg.exe 或 ffprobe.exe"
@@ -308,6 +332,92 @@ PY
     echo "MPV 工具注入失败，缺少 mpv.exe"
     exit 1
   fi
+}
+
+ensure_7zip_local() {
+  local tools_dir="$DESKTOP_DIR/.tools/p7zip-linux"
+  local root_dir="$tools_dir/root"
+  local bin_path="$root_dir/usr/lib/7zip/7z"
+  local sevenzr_path="$root_dir/usr/lib/7zip/7zr"
+  local alt_bin_path="$root_dir/usr/lib/p7zip/7z"
+  local alt_sevenzr_path="$root_dir/usr/lib/p7zip/7zr"
+
+  if [[ -x "$bin_path" ]]; then
+    echo "$bin_path"
+    return 0
+  fi
+
+  if [[ -x "$sevenzr_path" ]]; then
+    echo "$sevenzr_path"
+    return 0
+  fi
+
+  if [[ -x "$alt_bin_path" ]]; then
+    echo "$alt_bin_path"
+    return 0
+  fi
+
+  if [[ -x "$alt_sevenzr_path" ]]; then
+    echo "$alt_sevenzr_path"
+    return 0
+  fi
+
+  mkdir -p "$tools_dir" "$root_dir"
+
+  local tmp_dir="$tools_dir/.tmp"
+  mkdir -p "$tmp_dir"
+
+  pushd "$tmp_dir" >/dev/null
+
+  rm -f 7zip_*.deb p7zip_*.deb p7zip-full_*.deb || true
+
+  # Ubuntu 24.04+ 推荐使用 7zip（非 p7zip），优先尝试该包
+  if apt download 7zip >/dev/null 2>&1; then
+    shopt -s nullglob
+    local sevenzip_debs=(7zip_*.deb)
+    shopt -u nullglob
+    if (( ${#sevenzip_debs[@]} > 0 )); then
+      dpkg-deb -x "${sevenzip_debs[0]}" "$root_dir"
+    fi
+  fi
+
+  # 兼容旧环境（若上面未得到 7z/7zr）
+  if [[ ! -x "$bin_path" && ! -x "$sevenzr_path" ]]; then
+    apt download p7zip p7zip-full >/dev/null
+    shopt -s nullglob
+    local legacy_debs=(p7zip_*.deb p7zip-full_*.deb)
+    shopt -u nullglob
+    for deb in "${legacy_debs[@]}"; do
+      dpkg-deb -x "$deb" "$root_dir"
+    done
+  fi
+
+  popd >/dev/null
+
+  if [[ -x "$bin_path" ]]; then
+    echo "$bin_path"
+    return 0
+  fi
+  if [[ -x "$sevenzr_path" ]]; then
+    echo "$sevenzr_path"
+    return 0
+  fi
+  if [[ -x "$alt_bin_path" ]]; then
+    echo "$alt_bin_path"
+    return 0
+  fi
+  if [[ -x "$alt_sevenzr_path" ]]; then
+    echo "$alt_sevenzr_path"
+    return 0
+  fi
+
+  echo "未找到可用 7z/7zr 二进制"
+  echo "已检查:"
+  echo "- $bin_path"
+  echo "- $sevenzr_path"
+  echo "- $alt_bin_path"
+  echo "- $alt_sevenzr_path"
+  exit 1
 }
 
 ensure_nsis_local() {
@@ -355,7 +465,14 @@ build_runtime() {
   fi
 
   log "构建 webui"
-  (cd "$ROOT_DIR/webui" && bun install && bun run build)
+  (
+    cd "$ROOT_DIR/webui"
+    bun install
+    if ! bun run build; then
+      log "bun run build 失败，回退使用 node 直接调用 vite"
+      node ./node_modules/vite/bin/vite.js build
+    fi
+  )
 
   log "构建 Go sidecar (windows/amd64)"
   (
@@ -369,6 +486,11 @@ build_runtime() {
 
   log "同步 server 源码"
   sync_server_source
+
+  # 仅保留 Windows BDInfo 工具，避免把 Linux 大文件打进 Windows 安装包
+  if [[ -d "$RUNTIME_DIR/server/core/bdinfo/linux" ]]; then
+    rm -rf "$RUNTIME_DIR/server/core/bdinfo/linux"
+  fi
 
   if [[ ! -f "$RUNTIME_DIR/server/background_runner.py" ]]; then
     echo "缺少 background_runner.py: $RUNTIME_DIR/server/background_runner.py"
@@ -388,6 +510,8 @@ build_runtime() {
   log "准备 Windows 媒体工具 (mpv/ffmpeg)"
   prepare_windows_media_tools
 
+  pack_python_runtime_zip
+
   log "准备版本文件"
   cp "$ROOT_DIR/CHANGELOG.json" "$DESKTOP_DIR/CHANGELOG.json"
 }
@@ -400,14 +524,21 @@ build_installer() {
   tools_bin_dir="$(dirname "$nsis_wrapper")"
   local nsis_root
   nsis_root="$(cd "$tools_bin_dir/../root" && pwd)"
+  local tauri_cli="$DESKTOP_DIR/node_modules/@tauri-apps/cli/tauri.js"
+
+  if [[ ! -f "$tauri_cli" ]]; then
+    echo "未找到 Tauri CLI: $tauri_cli"
+    echo "请先在 desktop 目录执行 bun install"
+    exit 1
+  fi
 
   cd "$DESKTOP_DIR"
   if [[ -n "${CARGO_BUILD_JOBS:-}" ]]; then
-    PATH="$tools_bin_dir:$PATH" NSISDIR="$nsis_root/usr/share/nsis" CARGO_BUILD_JOBS="$CARGO_BUILD_JOBS" bunx tauri build --target x86_64-pc-windows-gnu
+    PATH="$tools_bin_dir:$PATH" NSISDIR="$nsis_root/usr/share/nsis" CARGO_BUILD_JOBS="$CARGO_BUILD_JOBS" node "$tauri_cli" build --target x86_64-pc-windows-gnu
   else
-    if ! PATH="$tools_bin_dir:$PATH" NSISDIR="$nsis_root/usr/share/nsis" bunx tauri build --target x86_64-pc-windows-gnu; then
+    if ! PATH="$tools_bin_dir:$PATH" NSISDIR="$nsis_root/usr/share/nsis" node "$tauri_cli" build --target x86_64-pc-windows-gnu; then
       log "首次构建失败，自动回退 CARGO_BUILD_JOBS=1 重试"
-      PATH="$tools_bin_dir:$PATH" NSISDIR="$nsis_root/usr/share/nsis" CARGO_BUILD_JOBS=1 bunx tauri build --target x86_64-pc-windows-gnu
+      PATH="$tools_bin_dir:$PATH" NSISDIR="$nsis_root/usr/share/nsis" CARGO_BUILD_JOBS=1 node "$tauri_cli" build --target x86_64-pc-windows-gnu
     fi
   fi
 
@@ -443,6 +574,7 @@ build_installer() {
 
 main() {
   require_cmd bun
+  require_cmd node
   require_cmd go
   require_cmd python3
   require_cmd curl

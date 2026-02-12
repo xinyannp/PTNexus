@@ -611,7 +611,8 @@ fn build_runtime_env(
     let static_dir = server_dir.join("dist");
     let global_mappings = server_dir.join("configs").join("global_mappings.yaml");
     let sites_data = server_dir.join("sites_data.json");
-    let bdinfo_dir = server_dir.join("bdinfo");
+    let bdinfo_dir = server_dir.join("core").join("bdinfo");
+    let bdinfo_windows_dir = bdinfo_dir.join("windows");
     let media_tools_dir = server_dir.join("tools");
     let mpv_dir = media_tools_dir.join("mpv");
     let ffmpeg_dir = media_tools_dir.join("ffmpeg").join("bin");
@@ -669,7 +670,17 @@ fn build_runtime_env(
     );
     envs.insert(
         "PTNEXUS_BDINFO_PATH".to_string(),
-        bdinfo_dir.join(exe_name("BDInfo")).to_string_lossy().to_string(),
+        bdinfo_windows_dir
+            .join(exe_name("BDInfo"))
+            .to_string_lossy()
+            .to_string(),
+    );
+    envs.insert(
+        "PTNEXUS_BDINFO_SUBSTRACTOR_PATH".to_string(),
+        bdinfo_windows_dir
+            .join(exe_name("BDInfoDataSubstractor"))
+            .to_string_lossy()
+            .to_string(),
     );
     envs.insert(
         "PTNEXUS_MPV_PATH".to_string(),
